@@ -28,6 +28,9 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+/* Sleeping list for tick sleep function */
+static struct list sleep_list;
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -108,6 +111,7 @@ thread_init (void) {
 	/* Init the globla thread context */
 	lock_init (&tid_lock);
 	list_init (&ready_list);
+	list_init (&sleep_list);
 	list_init (&destruction_req);
 
 	/* Set up a thread structure for the running thread. */
@@ -210,6 +214,18 @@ thread_create (const char *name, int priority,
 	return tid;
 }
 
+/* Returns true if value A is less than value B, false
+   otherwise. */
+static bool
+awake_tick_less (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED) 
+{
+  const int64_t a = list_entry (a_, struct thread, elem) -> awake_ticks;
+  const int64_t b = list_entry (b_, struct thread, elem) -> awake_ticks;
+  
+  return a < b;
+}
+
 /* Puts the current thread to sleep.  It will not be scheduled
    again until awoken by thread_unblock().
 
@@ -306,6 +322,49 @@ thread_yield (void) {
 		list_push_back (&ready_list, &curr->elem);
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
+}
+
+void
+thread_set_awake_ticks(int64_t ticks) {
+	thread_current ()->awake_ticks = ticks;
+}
+
+int64_t
+thread_get_awake_ticks(void) {
+	return thread_current ()->awake_ticks;
+}
+
+void
+thread_sleep (void) {
+	enum intr_level old_level;
+	old_level = intr_disable();
+	struct thread *curr = thread_current ();
+
+	list_insert_ordered(&sleep_list, &curr->elem, awake_tick_less, NULL);
+	// TODO : sorting으로 timer가 작은 친구가 list의 앞에 오도록 -> sorting해서 넣어주는 함수 발견
+	// list_sort(&sleep_list, value_less, )
+	thread_block();
+	intr_set_level(old_level);
+}
+
+void
+thread_awake(int64_t curr_ticks) {
+	struct list_elem *_elem = list_head(&sleep_list);
+	struct thread *elem_thread;
+	int64_t _awake_ticks;
+
+	while (_elem != list_tail(&sleep_list)) {
+		elem_thread = list_entry(_elem, struct thread, elem);
+		_awake_ticks = elem_thread -> awake_ticks;
+
+		if (_awake_ticks <= curr_ticks) {
+			elem_thread -> awake_ticks = NULL;
+			_elem = list_remove(_elem);
+			thread_unblock(elem_thread);
+		} else {
+			break;
+		}
+	}
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
