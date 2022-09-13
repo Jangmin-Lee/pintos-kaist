@@ -349,7 +349,7 @@ thread_sleep (void) {
 
 void
 thread_awake(int64_t curr_ticks) {
-	struct list_elem *_elem = list_head(&sleep_list);
+	struct list_elem *_elem = list_begin(&sleep_list);
 	struct thread *elem_thread;
 	int64_t _awake_ticks;
 
@@ -358,7 +358,6 @@ thread_awake(int64_t curr_ticks) {
 		_awake_ticks = elem_thread -> awake_ticks;
 
 		if (_awake_ticks <= curr_ticks) {
-			elem_thread -> awake_ticks = NULL;
 			_elem = list_remove(_elem);
 			thread_unblock(elem_thread);
 		} else {
