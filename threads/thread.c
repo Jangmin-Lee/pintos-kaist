@@ -214,8 +214,7 @@ thread_create (const char *name, int priority,
 	return tid;
 }
 
-/* Returns true if value A is less than value B, false
-   otherwise. */
+// Sorting Functions
 static bool
 awake_tick_less (const struct list_elem *a_, const struct list_elem *b_,
             void *aux UNUSED) 
@@ -224,6 +223,16 @@ awake_tick_less (const struct list_elem *a_, const struct list_elem *b_,
   const int64_t b = list_entry (b_, struct thread, elem) -> awake_ticks;
   
   return a < b;
+}
+
+static bool
+priority_high (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED) 
+{
+  const int64_t a = list_entry (a_, struct thread, elem) -> priority;
+  const int64_t b = list_entry (b_, struct thread, elem) -> priority;
+  
+  return a > b;
 }
 
 /* Puts the current thread to sleep.  It will not be scheduled
@@ -256,7 +265,7 @@ thread_unblock (struct thread *t) {
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
+	list_insert_ordered (&ready_list, &t->elem, priority_high, NULL);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
 }
@@ -319,7 +328,7 @@ thread_yield (void) {
 
 	old_level = intr_disable ();
 	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
+		list_insert_ordered (&ready_list, &curr->elem, priority_high, NULL);
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
 }
@@ -478,6 +487,7 @@ next_thread_to_run (void) {
 	if (list_empty (&ready_list))
 		return idle_thread;
 	else
+		// Ready list가 priority로 정렬됨이 보장됨으로 front에서 꺼낼 수 있다.
 		return list_entry (list_pop_front (&ready_list), struct thread, elem);
 }
 
