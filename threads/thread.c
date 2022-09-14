@@ -210,6 +210,7 @@ thread_create (const char *name, int priority,
 
 	/* Add to run queue. */
 	thread_unblock (t);
+	thread_check_appropriate();
 
 	return tid;
 }
@@ -351,7 +352,6 @@ thread_sleep (void) {
 
 	list_insert_ordered(&sleep_list, &curr->elem, awake_tick_less, NULL);
 	// TODO : sorting으로 timer가 작은 친구가 list의 앞에 오도록 -> sorting해서 넣어주는 함수 발견
-	// list_sort(&sleep_list, value_less, )
 	thread_block();
 	intr_set_level(old_level);
 }
@@ -378,6 +378,25 @@ thread_awake(int64_t curr_ticks) {
 void
 thread_set_priority (int new_priority) {
 	thread_current ()->priority = new_priority;
+	thread_check_appropriate();
+}
+
+/* 
+Check recent ready thread's Priority is higher than current runung thread
+if true, yield for preemption
+*/ 
+void
+thread_check_appropriate () {
+	if (list_empty(&ready_list)) return;
+	int64_t curr_priority = thread_current () -> priority;
+	int64_t low_priority_in_ready = list_entry(list_begin(&ready_list), struct thread, elem) -> priority;
+
+	// Reason of equal = priority가 같다 해도 내부에서 대기를 했을 것임으로?
+	// TODO: Check 필요
+	if (low_priority_in_ready >= curr_priority) {
+		// printf("curr priority : %d, ready_priority %d", curr_priority, low_priority_in_ready);
+		thread_yield();
+	}
 }
 
 /* Returns the current thread's priority. */
@@ -488,6 +507,7 @@ next_thread_to_run (void) {
 		return idle_thread;
 	else
 		// Ready list가 priority로 정렬됨이 보장됨으로 front에서 꺼낼 수 있다.
+		// list_sort(&ready_list, priority_high, NULL);
 		return list_entry (list_pop_front (&ready_list), struct thread, elem);
 }
 
