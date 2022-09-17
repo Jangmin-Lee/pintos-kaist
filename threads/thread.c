@@ -31,6 +31,8 @@ static struct list ready_list;
 /* Sleeping list for tick sleep function */
 static struct list sleep_list;
 
+/*  */
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -192,7 +194,7 @@ thread_create (const char *name, int priority,
 	t = palloc_get_page (PAL_ZERO);
 	if (t == NULL)
 		return TID_ERROR;
-
+	// printf("curr_thread : %d \npriority : %d\n", thread_current() -> priority, priority);
 	/* Initialize thread. */
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
@@ -377,7 +379,16 @@ thread_awake(int64_t curr_ticks) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
+	struct thread *curr = thread_current();
+	curr -> original_priority = new_priority;
+	if (!list_empty (&curr -> donate_list)) {
+		list_sort (&curr->donate_list, donate_priority_high, NULL);
+
+		int donate_max_priority = list_entry (list_begin (&curr->donate_list), struct thread, donate_elem) -> priority;
+		if (donate_max_priority > curr->priority) {
+			curr->priority = donate_max_priority;
+		}
+	}
 	thread_check_appropriate();
 }
 
@@ -494,6 +505,10 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
+
+	t->original_priority = priority;
+	t->next_lock = NULL;
+	list_init (&t->donate_list);
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
