@@ -11,6 +11,7 @@
 #include "threads/palloc.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "threads/fp.h"
 #include "intrinsic.h"
 #ifdef USERPROG
 #include "userprog/process.h"
@@ -32,7 +33,8 @@ static struct list ready_list;
 /* Sleeping list for tick sleep function */
 static struct list sleep_list;
 
-/*  */
+/* All thread List */
+static struct list all_list;
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -59,6 +61,8 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
+// load average, fixed point value
+int fp_load_avg;
 
 static void kernel_thread (thread_func *, void *aux);
 
@@ -115,6 +119,7 @@ thread_init (void) {
 	lock_init (&tid_lock);
 	list_init (&ready_list);
 	list_init (&sleep_list);
+	list_init (&all_list);
 	list_init (&destruction_req);
 
 	/* Set up a thread structure for the running thread. */
@@ -132,6 +137,9 @@ thread_start (void) {
 	struct semaphore idle_started;
 	sema_init (&idle_started, 0);
 	thread_create ("idle", PRI_MIN, idle, &idle_started);
+
+	// load avg initialize
+	fp_load_avg = 0;
 
 	/* Start preemptive thread scheduling. */
 	intr_enable ();
@@ -380,6 +388,7 @@ thread_awake(int64_t curr_ticks) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
+	if (thread_mlfqs) return;
 	struct thread *curr = thread_current();
 	curr -> original_priority = new_priority;
 	curr->priority = curr -> original_priority;
@@ -420,30 +429,125 @@ thread_get_priority (void) {
 
 /* Sets the current thread's nice value to NICE. */
 void
-thread_set_nice (int nice UNUSED) {
-	/* TODO: Your implementation goes here */
+thread_set_nice (int nice) {
+	enum intr_level old_level = intr_disable ();
+
+	struct thread *curr = thread_current();
+	curr -> nice = nice;
+	mlfqs_calculate_priority(curr);
+	thread_check_appropriate();
+
+	intr_set_level (old_level);
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) {
-	/* TODO: Your implementation goes here */
-	return 0;
+	enum intr_level old_level = intr_disable ();
+
+	int nice = thread_current() -> nice;
+	
+	intr_set_level (old_level);
+	return nice;
+
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) {
-	/* TODO: Your implementation goes here */
-	return 0;
+	enum intr_level old_level = intr_disable ();
+
+	int load_avg = fp_FptoI_Round(fp_FpMulI(fp_load_avg, 100));
+	
+	intr_set_level (old_level);
+	return load_avg;
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) {
-	/* TODO: Your implementation goes here */
-	return 0;
+	enum intr_level old_level = intr_disable ();
+
+	int recent_cpu = fp_FptoI_Round(fp_FpMulI(thread_current() -> fp_recent_cpu, 100));
+	
+	intr_set_level (old_level);
+	return recent_cpu;
 }
+
+// curr thread -> every fourth tick
+// timer에서 불려야 함.
+void
+mlfqs_calculate_priority(struct thread *t) {
+	if (t == idle_thread) return;
+	int fp_priority = fp_FpAddI(
+		fp_FpDivI(t -> fp_recent_cpu, -4),
+		PRI_MAX - (t -> nice) * 2);
+	t -> priority = fp_FptoI(fp_priority);
+}
+
+// Once per second, every thread's recent cpu is updated this way
+// Timer에서 업데이트 해야함.
+void
+mlfqs_calculate_recent_cpu(struct thread *t) {
+	if (t == idle_thread) return;
+
+	t -> fp_recent_cpu = fp_FpAddI(
+		fp_FpMul(
+			fp_FpDiv(
+				fp_FpMulI(fp_load_avg, 2),
+				fp_FpAddI(fp_FpMulI(fp_load_avg, 2), 1)
+			),
+		t -> fp_recent_cpu),
+	t -> nice);
+}
+
+// Recalculated once per second as follows
+void
+mlfqs_calculate_load_avg(void) {
+	int ready_size = list_size(&ready_list);
+
+	struct thread* curr = thread_current();
+	if (curr != idle_thread) {
+		ready_size += 1;
+	}
+
+	fp_load_avg = fp_FpAdd(
+		fp_FpDivI(
+			fp_FpMulI(fp_load_avg, 59),
+			60),
+		fp_FpDivI(
+			fp_ItoFp(ready_size),
+			60)
+		);
+}
+
+void mlfqs_recent_cpu_incr(void) {
+	struct thread *curr = thread_current();
+	if (curr == idle_thread) return;
+	curr -> fp_recent_cpu = fp_FpAddI(curr -> fp_recent_cpu, 1);
+}
+
+// every 4 tick, it called
+void mlfqs_update_priority(void) {
+	struct list_elem *elem;
+	struct thread* target;
+
+	for (elem = list_begin (&all_list); elem != list_end (&all_list); elem = list_next (elem)) {
+		target = list_entry(elem, struct thread, all_elem);
+		mlfqs_calculate_priority(target);
+	}
+}
+
+void mlfqs_update_recent_cpu(void) {
+	struct list_elem *elem;
+	struct thread* target;
+
+	for (elem = list_begin (&all_list); elem != list_end (&all_list); elem = list_next (elem)) {
+		target = list_entry(elem, struct thread, all_elem);
+		mlfqs_calculate_recent_cpu(target);
+	}
+}
+
 
 /* Idle thread.  Executes when no other thread is ready to run.
 
@@ -511,6 +615,12 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->original_priority = priority;
 	t->next_lock = NULL;
 	list_init (&t->donate_list);
+
+	// mlfqs 초기화	
+	t->nice = NICE_DEFAULT;
+	t->fp_recent_cpu = RECENT_DEFAULT;
+
+	list_push_back(&all_list, &t -> all_elem);
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -634,8 +744,8 @@ do_schedule(int status) {
 	ASSERT (intr_get_level () == INTR_OFF);
 	ASSERT (thread_current()->status == THREAD_RUNNING);
 	while (!list_empty (&destruction_req)) {
-		struct thread *victim =
-			list_entry (list_pop_front (&destruction_req), struct thread, elem);
+		struct thread *victim = list_entry (list_pop_front (&destruction_req), struct thread, elem);
+		list_remove(&victim -> all_elem);
 		palloc_free_page(victim);
 	}
 	thread_current ()->status = status;
