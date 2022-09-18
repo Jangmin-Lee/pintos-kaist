@@ -4,6 +4,7 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
+#include <console.h>
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -381,11 +382,13 @@ void
 thread_set_priority (int new_priority) {
 	struct thread *curr = thread_current();
 	curr -> original_priority = new_priority;
-	if (!list_empty (&curr -> donate_list)) {
-		list_sort (&curr->donate_list, donate_priority_high, NULL);
+	curr->priority = curr -> original_priority;
 
-		int donate_max_priority = list_entry (list_begin (&curr->donate_list), struct thread, donate_elem) -> priority;
-		if (donate_max_priority > curr->priority) {
+	if (!list_empty (&curr -> donate_list)) { 
+		// priority high로 정렬
+		list_sort (&curr -> donate_list, donate_priority_high, NULL);
+		int donate_max_priority = list_entry (list_begin (&curr -> donate_list), struct thread, donate_elem) -> priority;
+		if (curr->priority < donate_max_priority) {
 			curr->priority = donate_max_priority;
 		}
 	}
@@ -404,8 +407,7 @@ thread_check_appropriate () {
 
 	// Reason of equal = priority가 같다 해도 내부에서 대기를 했을 것임으로?
 	// TODO: Check 필요
-	if (low_priority_in_ready >= curr_priority) {
-		// printf("curr priority : %d, ready_priority %d", curr_priority, low_priority_in_ready);
+	if (curr_priority < low_priority_in_ready) {
 		thread_yield();
 	}
 }
