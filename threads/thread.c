@@ -4,6 +4,7 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
+#include <console.h>
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -27,6 +28,11 @@
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
+
+/* Sleeping list for tick sleep function */
+static struct list sleep_list;
+
+/*  */
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -108,6 +114,7 @@ thread_init (void) {
 	/* Init the globla thread context */
 	lock_init (&tid_lock);
 	list_init (&ready_list);
+	list_init (&sleep_list);
 	list_init (&destruction_req);
 
 	/* Set up a thread structure for the running thread. */
@@ -188,7 +195,7 @@ thread_create (const char *name, int priority,
 	t = palloc_get_page (PAL_ZERO);
 	if (t == NULL)
 		return TID_ERROR;
-
+	// printf("curr_thread : %d \npriority : %d\n", thread_current() -> priority, priority);
 	/* Initialize thread. */
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
@@ -206,8 +213,30 @@ thread_create (const char *name, int priority,
 
 	/* Add to run queue. */
 	thread_unblock (t);
+	thread_check_appropriate();
 
 	return tid;
+}
+
+// Sorting Functions
+static bool
+awake_tick_less (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED) 
+{
+  const int64_t a = list_entry (a_, struct thread, elem) -> awake_ticks;
+  const int64_t b = list_entry (b_, struct thread, elem) -> awake_ticks;
+  
+  return a < b;
+}
+
+static bool
+priority_high (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED) 
+{
+  const int64_t a = list_entry (a_, struct thread, elem) -> priority;
+  const int64_t b = list_entry (b_, struct thread, elem) -> priority;
+  
+  return a > b;
 }
 
 /* Puts the current thread to sleep.  It will not be scheduled
@@ -240,7 +269,7 @@ thread_unblock (struct thread *t) {
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
+	list_insert_ordered (&ready_list, &t->elem, priority_high, NULL);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
 }
@@ -303,15 +332,84 @@ thread_yield (void) {
 
 	old_level = intr_disable ();
 	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
+		list_insert_ordered (&ready_list, &curr->elem, priority_high, NULL);
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
+}
+
+void
+thread_set_awake_ticks(int64_t ticks) {
+	thread_current ()->awake_ticks = ticks;
+}
+
+int64_t
+thread_get_awake_ticks(void) {
+	return thread_current ()->awake_ticks;
+}
+
+void
+thread_sleep (void) {
+	enum intr_level old_level;
+	old_level = intr_disable();
+	struct thread *curr = thread_current ();
+
+	list_insert_ordered(&sleep_list, &curr->elem, awake_tick_less, NULL);
+	// TODO : sorting으로 timer가 작은 친구가 list의 앞에 오도록 -> sorting해서 넣어주는 함수 발견
+	thread_block();
+	intr_set_level(old_level);
+}
+
+void
+thread_awake(int64_t curr_ticks) {
+	struct list_elem *_elem = list_begin(&sleep_list);
+	struct thread *elem_thread;
+	int64_t _awake_ticks;
+
+	while (_elem != list_tail(&sleep_list)) {
+		elem_thread = list_entry(_elem, struct thread, elem);
+
+		if (elem_thread -> awake_ticks <= curr_ticks) {
+			_elem = list_remove(_elem);
+			thread_unblock(elem_thread);
+		} else {
+			break;
+		}
+	}
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
+	struct thread *curr = thread_current();
+	curr -> original_priority = new_priority;
+	curr->priority = curr -> original_priority;
+
+	if (!list_empty (&curr -> donate_list)) { 
+		// priority high로 정렬
+		list_sort (&curr -> donate_list, donate_priority_high, NULL);
+		int donate_max_priority = list_entry (list_begin (&curr -> donate_list), struct thread, donate_elem) -> priority;
+		if (curr->priority < donate_max_priority) {
+			curr->priority = donate_max_priority;
+		}
+	}
+	thread_check_appropriate();
+}
+
+/* 
+Check recent ready thread's Priority is higher than current runung thread
+if true, yield for preemption
+*/ 
+void
+thread_check_appropriate () {
+	if (list_empty(&ready_list)) return;
+	int64_t curr_priority = thread_current () -> priority;
+	int64_t low_priority_in_ready = list_entry(list_begin(&ready_list), struct thread, elem) -> priority;
+
+	// Reason of equal = priority가 같다 해도 내부에서 대기를 했을 것임으로?
+	// TODO: Check 필요
+	if (curr_priority < low_priority_in_ready) {
+		thread_yield();
+	}
 }
 
 /* Returns the current thread's priority. */
@@ -409,6 +507,10 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
+
+	t->original_priority = priority;
+	t->next_lock = NULL;
+	list_init (&t->donate_list);
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -421,6 +523,8 @@ next_thread_to_run (void) {
 	if (list_empty (&ready_list))
 		return idle_thread;
 	else
+		// Ready list가 priority로 정렬됨이 보장됨으로 front에서 꺼낼 수 있다.
+		// list_sort(&ready_list, priority_high, NULL);
 		return list_entry (list_pop_front (&ready_list), struct thread, elem);
 }
 

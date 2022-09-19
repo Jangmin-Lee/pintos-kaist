@@ -90,7 +90,13 @@ struct thread {
 	tid_t tid;                          /* Thread identifier. */
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
-	int priority;                       /* Priority. */
+	int priority;                       /* Current Priority. */
+	int original_priority;				/* priority that originally have */
+	int awake_ticks;					/* When to awake */
+
+	struct lock* next_lock;				/* Thread가 pending하고 있는 next lock */
+	struct list donate_list;			/* Donation 해준 thread의 list */
+	struct list_elem donate_elem;		/* donate가 일어난 thread elem */
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
@@ -123,6 +129,9 @@ void thread_print_stats (void);
 typedef void thread_func (void *aux);
 tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
+// Test file (list.c) 참고
+static bool awake_tick_less (const struct list_elem *, const struct list_elem *, void *);
+
 void thread_block (void);
 void thread_unblock (struct thread *);
 
@@ -133,8 +142,14 @@ const char *thread_name (void);
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
 
+void thread_set_awake_ticks (int64_t);
+int64_t thread_get_awake_ticks (void);
+
+void thread_awake (int64_t);
+
 int thread_get_priority (void);
 void thread_set_priority (int);
+void thread_check_appropriate (void);
 
 int thread_get_nice (void);
 void thread_set_nice (int);

@@ -10,6 +10,12 @@ struct semaphore {
 	struct list waiters;        /* List of waiting threads. */
 };
 
+/* One semaphore in a list. */
+struct semaphore_elem {
+	struct list_elem elem;              /* List element. */
+	struct semaphore semaphore;         /* This semaphore. */
+};
+
 void sema_init (struct semaphore *, unsigned value);
 void sema_down (struct semaphore *);
 bool sema_try_down (struct semaphore *);
@@ -37,6 +43,9 @@ void cond_init (struct condition *);
 void cond_wait (struct condition *, struct lock *);
 void cond_signal (struct condition *, struct lock *);
 void cond_broadcast (struct condition *, struct lock *);
+
+// compare func
+bool donate_priority_high(const struct list_elem *a_, const struct list_elem *b_, void *aux);
 
 /* Optimization barrier.
  *
