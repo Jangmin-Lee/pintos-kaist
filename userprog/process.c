@@ -65,7 +65,6 @@ initd (void *f_name) {
 #endif
 
 	process_init ();
-
 	if (process_exec (f_name) < 0)
 		PANIC("Fail to launch initd\n");
 	NOT_REACHED ();
@@ -163,8 +162,13 @@ error:
 int
 process_exec (void *f_name) {
 	char *file_name = f_name;
+	// split file_name by space
+	// add \0 to all element
+	// USER_STACK(0x47480000) is our stack's starting point, stored at rsp register
+	// calculate each elements length and apply to stack address (grow down)
+	// set rdi in _if.R same as elements num -1 (\0)
+	// set rsi in _id.R same as argv[0] (real file)
 	bool success;
-
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
 	 * it stores the execution information to the member. */
@@ -176,14 +180,61 @@ process_exec (void *f_name) {
 	/* We first kill the current context */
 	process_cleanup ();
 
+	// max # of args = 128 -> /2 with space = 64.
+	int _argc = 0;
+	char *arg_list[64];
+	{
+		char *token, *save_ptr;
+		for (
+			token = strtok_r (file_name, " ", &save_ptr);
+			token != NULL;
+			token = strtok_r (NULL, " ", &save_ptr)
+		) {
+			arg_list[_argc] = token;
+			_argc ++;
+		}
+	}
+
 	/* And then load the binary */
 	success = load (file_name, &_if);
 
 	/* If load failed, quit. */
-	palloc_free_page (file_name);
 	if (!success)
 		return -1;
-
+	
+	// push args value and get pointer
+	for (int i = _argc - 1; i >= 0; i--) {
+		// strlen doesn't add \0
+		int len_arg = strlen(arg_list[i]) + 1;
+		_if.rsp -= len_arg;
+		memcpy(_if.rsp, arg_list[i], len_arg);
+	}
+	// align pointer down to a multiple of 8
+	{
+		int padding = _if.rsp % 8;
+		_if.rsp -= padding;
+		memset(_if.rsp, 0, padding);
+	}
+	// push fake 0 (char pointer)
+	{
+		_if.rsp -= sizeof(char *);
+		memset(_if.rsp, 0, sizeof(char *));
+	}
+	// push args pointer
+	for (int i = _argc - 1; i != 0; i--){
+		_if.rsp -= sizeof(&arg_list[i]);
+		memcpy(_if.rsp, &arg_list[i], sizeof(&arg_list[i]));
+	}
+	// push return address void (*) ()
+	{
+		_if.rsp -= sizeof(void *);
+		memset(_if.rsp, 0, sizeof(void *));
+	}
+	
+	_if.R.rsi = _argc;
+	_if.R.rdi = _if.rsp + 8;
+	palloc_free_page (file_name);
+	// hex_dump (_if.rsp, _if.rsp, 40, true);
 	/* Start switched process. */
 	do_iret (&_if);
 	NOT_REACHED ();
@@ -204,6 +255,7 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+  	for (int i = 0; i < 1000000000; i++);
 	return -1;
 }
 

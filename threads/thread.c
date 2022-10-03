@@ -416,7 +416,7 @@ thread_check_appropriate () {
 
 	// Reason of equal = priority가 같다 해도 내부에서 대기를 했을 것임으로?
 	// TODO: Check 필요
-	if (curr_priority < low_priority_in_ready) {
+	if (curr_priority < low_priority_in_ready && !intr_context()) {
 		thread_yield();
 	}
 }
