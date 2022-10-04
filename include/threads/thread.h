@@ -119,6 +119,7 @@ struct thread {
 	int exit_status;
 	struct semaphore wait_sema;
 	struct semaphore clean_sema;
+	struct file* fd_table[128];
 	
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
@@ -186,6 +187,7 @@ void mlfqs_update_priority(void);
 
 // proj2
 struct thread* find_child(tid_t);
+int allocate_fd(void);
 
 void do_iret (struct intr_frame *tf);
 

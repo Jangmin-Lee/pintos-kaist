@@ -43,7 +43,7 @@ syscall_init (void) {
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
 }
 
-void check_valid_ptr(void *_ptr) {
+void check_valid_ptr(const void *_ptr) {
 	// 없는경우, KERNEL 영역인 경우, User영역이지만 valid하지 않은 경우
 	if (!_ptr || is_kernel_vaddr(_ptr) || !pml4_get_page(thread_current() -> pml4, _ptr)) {
 		exit(-1);
@@ -91,7 +91,7 @@ int wait (tid_t pid) {
 
 bool create (const char *file, unsigned initial_size) {
 	check_valid_ptr(file);
-	return filesys_create(file, initial_size);
+	filesys_create(file, initial_size);
 }
 
 bool remove (const char *file) {
@@ -102,21 +102,53 @@ bool remove (const char *file) {
 
 int open (const char *file) {
 	check_valid_ptr(file);
-	bool success = filesys_open(file);
-	if (!success) {
+	struct file *file_ptr = filesys_open(file);
+	if (!file_ptr) {
 		return -1;
 	}
+	int fd = allocate_fd();
+	if (fd < 1 || fd > 128) {
+		return -1;
+	}
+	struct thread *curr = thread_current();
+	curr -> fd_table[fd] = file_ptr;
+	return fd;
 	// return file descriptor
+	// 0 : stdin / 1 : stdout
+	// 파일을 각 프로세스가 열 때 마다 각 fd가 생긴다.
+	// 각 프로세스는 여러개의 fd를 가질 수 있다.
+	// 2부터 시작하는 단조증가 값을 가지게 하라 (tid 관련 코드 참고 가능할듯)
+	// fd -> file인 mapping 테이블이 필요할 것이다.
+	// 단조증가이므로 그냥 list index 사용
+	// 128개 by FAQ
+	// Thread는 fd의 리스트를 가지게 될 것이다.
 	// return file
 }
 
 int filesize (int fd) {
-	return;
+	if (fd < 1 || fd > 128) {
+		return -1;
+	}
+	struct file *_file = thread_current() -> fd_table[fd];
+	if (!_file) {
+		return -1;
+	}
+	return file_length(_file);
 }
 
 int read (int fd, void *buffer, unsigned length) {
 	check_valid_ptr(buffer);
-	return;
+	if (fd == 0) {
+		return input_getc ();
+	}
+	if (fd < 1 || fd > 128) {
+		return -1;
+	}
+	struct file *_file = thread_current() -> fd_table[fd];
+	if (!_file) {
+		return -1;
+	}
+	return file_read(_file, buffer, length);
 }
 
 int write (int fd, const void *buffer, unsigned length) {
@@ -125,15 +157,49 @@ int write (int fd, const void *buffer, unsigned length) {
 		putbuf(buffer, length);
 		return length;
 	}
-	// file write
+	if (fd < 1 || fd > 128) {
+		return -1;
+	}
+	struct file *_file = thread_current() -> fd_table[fd];
+	if (!_file) {
+		return -1;
+	}
+	return file_write(_file, buffer, length);
 }
+
 void seek (int fd, unsigned position) {
-	return;
+	if (fd < 1 || fd > 128) {
+		return -1;
+	}
+	struct file *_file = thread_current() -> fd_table[fd];
+	if (!_file) {
+		return -1;
+	}
+	file_seek(_file, position);
 }
+
 unsigned tell (int fd) {
-	return 0;
+	if (fd < 1 || fd > 128) {
+		return -1;
+	}
+	struct file *_file = thread_current() -> fd_table[fd];
+	if (!_file) {
+		return -1;
+	}
+	return file_tell(_file);
 }
+
 void close (int fd) {
+	if (fd < 1 || fd > 128) {
+		return -1;
+	}
+	struct thread *curr = thread_current();
+	struct file *_file = curr -> fd_table[fd];
+	if (!_file) {
+		exit(-1);
+	}
+	file_close(_file);
+	curr -> fd_table[fd] = NULL;
 	return;
 }
 

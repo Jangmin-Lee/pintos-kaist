@@ -42,6 +42,9 @@ static struct thread *initial_thread;
 /* Lock used by allocate_tid(). */
 static struct lock tid_lock;
 
+/* Lock used by allocate_tid(). */
+static struct lock fd_lock;
+
 /* Thread destruction requests */
 static struct list destruction_req;
 
@@ -118,6 +121,9 @@ thread_init (void) {
 	list_init (&sleep_list);
 	list_init (&all_list);
 	list_init (&destruction_req);
+
+	// proj2
+	lock_init (&fd_lock);
 
 	/* Set up a thread structure for the running thread. */
 	initial_thread = running_thread ();
@@ -646,6 +652,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 	sema_init (&t -> clean_sema, 0);
 	t -> exit_status = 0;
 	t -> parent = NULL;
+	for (int i = 0; i < 128; i ++) t->fd_table[i] = NULL;
 
 	list_push_back(&all_list, &t -> all_elem);
 }
@@ -828,4 +835,15 @@ allocate_tid (void) {
 	lock_release (&tid_lock);
 
 	return tid;
+}
+
+int allocate_fd (void) {
+	static int next_fd = 2;
+	int fd;
+
+	lock_acquire (&fd_lock);
+	fd = next_fd++;
+	lock_release (&fd_lock);
+
+	return fd;
 }
