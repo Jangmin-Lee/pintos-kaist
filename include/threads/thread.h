@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
 #include "threads/interrupt.h"
 #ifdef VM
 #include "vm/vm.h"
@@ -107,7 +108,6 @@ struct thread {
 	// mlqfs fixed point value
 	int fp_recent_cpu;
 
-
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 	struct list_elem all_elem;
@@ -116,10 +116,10 @@ struct thread {
 	struct thread *parent;
 	struct list child_list;
 	struct list_elem child_elem;
-
-	struct semaphore *wait_sema;
+	int exit_status;
+	struct semaphore wait_sema;
+	struct semaphore clean_sema;
 	
-
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
@@ -183,6 +183,9 @@ void mlfqs_calculate_load_avg(void);
 void mlfqs_recent_cpu_incr(void);
 void mlfqs_update_recent_cpu(void);
 void mlfqs_update_priority(void);
+
+// proj2
+struct thread* find_child(tid_t);
 
 void do_iret (struct intr_frame *tf);
 

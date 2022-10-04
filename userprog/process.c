@@ -15,6 +15,7 @@
 #include "threads/interrupt.h"
 #include "threads/palloc.h"
 #include "threads/thread.h"
+#include "threads/synch.h"
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
@@ -51,7 +52,7 @@ process_create_initd (const char *file_name) {
 	strlcpy (fn_copy, file_name, PGSIZE);
 
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
+	tid = thread_create (strtok_r(NULL, " ", &file_name), PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
 	return tid;
@@ -63,7 +64,6 @@ initd (void *f_name) {
 #ifdef VM
 	supplemental_page_table_init (&thread_current ()->spt);
 #endif
-
 	process_init ();
 	if (process_exec (f_name) < 0)
 		PANIC("Fail to launch initd\n");
@@ -235,7 +235,6 @@ process_exec (void *f_name) {
 	
 	_if.R.rdi = _argc;
 	_if.R.rsi = _if.rsp + 8;
-
 	palloc_free_page (file_name);
 	// hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
 	/* Start switched process. */
@@ -254,24 +253,27 @@ process_exec (void *f_name) {
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) {
-	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
-	 * XXX:       to add infinite loop here before
-	 * XXX:       implementing the process_wait. */
-  	for (int i = 0; i < 1000000000; i++);
-	return -1;
+process_wait (tid_t child_tid) {
+	struct thread *curr = thread_current();
+	struct thread *child = find_child(child_tid);
+	if (!child) {
+		return -1;
+	}
+
+	sema_down(&child -> wait_sema);
+	list_remove(&child -> child_elem);
+	int child_exit = child -> exit_status;
+	sema_up(&child -> clean_sema);
+	return child -> exit_status;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
 void
 process_exit (void) {
 	struct thread *curr = thread_current ();
-	/* TODO: Your code goes here.
-	 * TODO: Implement process termination message (see
-	 * TODO: project2/process_termination.html).
-	 * TODO: We recommend you to implement process resource cleanup here. */
-
 	process_cleanup ();
+	sema_up(&curr -> wait_sema);
+	sema_down(&curr -> clean_sema);
 }
 
 /* Free the current process's resources. */

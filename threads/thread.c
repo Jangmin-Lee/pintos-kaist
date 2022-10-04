@@ -1,15 +1,12 @@
 #include "threads/thread.h"
-#include <debug.h>
 #include <stddef.h>
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
 #include <console.h>
 #include "threads/flags.h"
-#include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
 #include "threads/palloc.h"
-#include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "threads/fp.h"
 #include "intrinsic.h"
@@ -115,7 +112,7 @@ thread_init (void) {
 	};
 	lgdt (&gdt_ds);
 
-	/* Init the globla thread context */
+	/* Init the global thread context */
 	lock_init (&tid_lock);
 	list_init (&ready_list);
 	list_init (&sleep_list);
@@ -218,7 +215,11 @@ thread_create (const char *name, int priority,
 	t->tf.ss = SEL_KDSEG;
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
-
+	// proj 2
+	struct thread* curr = thread_current();
+	t->parent = curr;
+	list_push_back(&curr->child_list, &t->child_elem);
+	// 
 	/* Add to run queue. */
 	thread_unblock (t);
 	thread_check_appropriate();
@@ -548,6 +549,26 @@ void mlfqs_update_recent_cpu(void) {
 	}
 }
 
+// child list에서 tid를 가진 child가 있는지 찾는 함수
+struct thread *
+find_child(tid_t target_tid){
+	struct list_elem *e;
+	struct thread* target;
+
+	struct thread *curr = thread_current();
+	struct list *child_list = &(curr -> child_list);
+
+	if (child_list == NULL) {
+		return;
+	}
+	for (e = list_begin (child_list); e != list_end (child_list); e = list_next (e)) {
+		target = list_entry(e, struct thread, child_elem);
+		if (target -> tid == target_tid) {
+			return target;
+		}
+	}
+	return;
+}
 
 /* Idle thread.  Executes when no other thread is ready to run.
 
@@ -612,13 +633,19 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
 
+	// proj 1
 	t->original_priority = priority;
 	t->next_lock = NULL;
-	list_init (&t->donate_list);
-
-	// mlfqs 초기화	
+	list_init (&t -> donate_list);
 	t->nice = NICE_DEFAULT;
 	t->fp_recent_cpu = RECENT_DEFAULT;
+
+	// proj 2;
+	list_init (&t -> child_list);
+	sema_init (&t -> wait_sema, 0);
+	sema_init (&t -> clean_sema, 0);
+	t -> exit_status = 0;
+	t -> parent = NULL;
 
 	list_push_back(&all_list, &t -> all_elem);
 }

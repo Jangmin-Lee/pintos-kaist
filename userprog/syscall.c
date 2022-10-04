@@ -1,4 +1,5 @@
 #include "userprog/syscall.h"
+#include "userprog/process.h"
 #include "filesys/filesys.h"
 #include <stdio.h>
 #include <syscall-nr.h>
@@ -42,29 +43,42 @@ syscall_init (void) {
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
 }
 
+void check_valid_ptr(void *_ptr) {
+	// 없는경우, KERNEL 영역인 경우, User영역이지만 valid하지 않은 경우
+	if (!_ptr || is_kernel_vaddr(_ptr) || !pml4_get_page(thread_current() -> pml4, _ptr)) {
+		exit(-1);
+	}
+}
+
 void halt (void) {
 	power_off();
 }
 
 void exit (int status) {
 	struct thread *curr = thread_current();
+	curr -> exit_status = status;
+
 	printf("%s: exit(%d)\n", thread_name(), status);
 	thread_exit();
 }
 
 int fork (const char *thread_name) {
-	// struct thread *curr = thread_current();
+	check_valid_ptr(thread_name);
+	struct thread *curr = thread_current();
 	// tid_t pid = thread_create(thread_name, curr -> priority, );
 	// if (true){
 	// 	return TID_ERROR;
 	// }
+	process_fork(thread_name, &curr -> tf);
 }
 int exec (const char *file) {
-	return;
+	check_valid_ptr(file);
+	return process_exec(file);
 }
 
-int wait (int pid) {
+int wait (tid_t pid) {
 	// find child process from my child list
+
 	// if not exist -> err
 	// child의 wait semaphore를 wait
 	// child는 종료될때 wait sema를 해제
@@ -72,20 +86,22 @@ int wait (int pid) {
 	// 그럼으로 exit 시에 child의 return status를 저장해줘야 함.
 	// kernal에 의해 종료된 경우에는 -1 리턴
 	// 이미 wait에 들어간 자식을 다시 wait 하는 경우에도 -1 리턴, sema쪽 waiter 길이가 1보다 크면 안될 듯.
-
-	return;
+	return process_wait(pid);
 }
 
 bool create (const char *file, unsigned initial_size) {
+	check_valid_ptr(file);
 	return filesys_create(file, initial_size);
 }
 
 bool remove (const char *file) {
+	check_valid_ptr(file);
 	// special case = remove opened file
 	return filesys_remove(file);
 }
 
 int open (const char *file) {
+	check_valid_ptr(file);
 	bool success = filesys_open(file);
 	if (!success) {
 		return -1;
@@ -99,10 +115,12 @@ int filesize (int fd) {
 }
 
 int read (int fd, void *buffer, unsigned length) {
+	check_valid_ptr(buffer);
 	return;
 }
 
 int write (int fd, const void *buffer, unsigned length) {
+	check_valid_ptr(buffer);
 	if (fd == 1) {
 		putbuf(buffer, length);
 		return length;
@@ -113,7 +131,7 @@ void seek (int fd, unsigned position) {
 	return;
 }
 unsigned tell (int fd) {
-	return;
+	return 0;
 }
 void close (int fd) {
 	return;
@@ -124,10 +142,6 @@ void close (int fd) {
 void
 syscall_handler (struct intr_frame *f) {
 	int sys_num = f -> R.rax;
-	// uintptr_t stack_ptr = f -> rsp;
-	// if (!stack_ptr || is_kernel_vaddr(stack_ptr)) {
-	// 	exit(-1);
-	// }
 	// %rdi, %rsi, %rdx, %r10, %r8, and %r9.
 
 	// printf("num : %d\n", sys_num);
@@ -140,37 +154,37 @@ syscall_handler (struct intr_frame *f) {
 			exit((int) f -> R.rdi);
 			break;
 		case SYS_FORK:
-			fork((char *) f -> R.rdi);
+			f -> R.rax = fork((char *) f -> R.rdi);
 			break;
 		case SYS_EXEC:
-			exec((char *) f -> R.rdi);
+			f -> R.rax = exec((char *) f -> R.rdi);
 			break;
 		case SYS_WAIT:
-			wait((int) f -> R.rdi);
+			f -> R.rax = wait((tid_t) f -> R.rdi);
 			break;
 		case SYS_CREATE:
-			create((char *) f -> R.rdi, (unsigned) f -> R.rsi);
+			f -> R.rax = create((char *) f -> R.rdi, (unsigned) f -> R.rsi);
 			break;
 		case SYS_REMOVE:
-			remove((char *) f -> R.rdi);
+			f -> R.rax = remove((char *) f -> R.rdi);
 			break;
 		case SYS_OPEN:
-			open((char *) f -> R.rdi);
+			f -> R.rax = open((char *) f -> R.rdi);
 			break;
 		case SYS_FILESIZE:
-			filesize((int) f -> R.rdi);
+			f -> R.rax = filesize((int) f -> R.rdi);
 			break;
 		case SYS_READ:
-			read((int) f -> R.rdi, (void *) f -> R.rsi, (unsigned) f -> R.rdx);
+			f -> R.rax = read((int) f -> R.rdi, (void *) f -> R.rsi, (unsigned) f -> R.rdx);
 			break;
 		case SYS_WRITE:
-			write((int) f -> R.rdi, (const void *) f -> R.rsi, (unsigned) f -> R.rdx);
+			f -> R.rax = write((int) f -> R.rdi, (const void *) f -> R.rsi, (unsigned) f -> R.rdx);
 			break;
 		case SYS_SEEK:
 			seek((int) f -> R.rdi, (unsigned) f -> R.rdx);
 			break;
 		case SYS_TELL:
-			tell((int) f -> R.rdi);
+			f -> R.rax = tell((int) f -> R.rdi);
 			break;
 		case SYS_CLOSE:
 			close((int) f -> R.rdi);
