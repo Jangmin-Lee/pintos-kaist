@@ -166,7 +166,7 @@ process_exec (void *f_name) {
 	// add \0 to all element
 	// USER_STACK(0x47480000) is our stack's starting point, stored at rsp register
 	// calculate each elements length and apply to stack address (grow down)
-	// set rdi in _if.R same as elements num -1 (\0)
+	// set rdi in _if.R same as elements num
 	// set rsi in _id.R same as argv[0] (real file)
 	bool success;
 	/* We cannot use the intr_frame in the thread structure.
@@ -202,12 +202,14 @@ process_exec (void *f_name) {
 	if (!success)
 		return -1;
 	
+	char *argptr_list[_argc-1];
 	// push args value and get pointer
 	for (int i = _argc - 1; i >= 0; i--) {
 		// strlen doesn't add \0
 		int len_arg = strlen(arg_list[i]) + 1;
 		_if.rsp -= len_arg;
 		memcpy(_if.rsp, arg_list[i], len_arg);
+		argptr_list[i] = _if.rsp;
 	}
 	// align pointer down to a multiple of 8
 	{
@@ -221,9 +223,9 @@ process_exec (void *f_name) {
 		memset(_if.rsp, 0, sizeof(char *));
 	}
 	// push args pointer
-	for (int i = _argc - 1; i != 0; i--){
-		_if.rsp -= sizeof(&arg_list[i]);
-		memcpy(_if.rsp, &arg_list[i], sizeof(&arg_list[i]));
+	for (int i = _argc - 1; i >= 0; i--){
+		_if.rsp -= sizeof(&argptr_list[i]);
+		memcpy(_if.rsp, &argptr_list[i], sizeof(&argptr_list[i]));
 	}
 	// push return address void (*) ()
 	{
@@ -231,10 +233,11 @@ process_exec (void *f_name) {
 		memset(_if.rsp, 0, sizeof(void *));
 	}
 	
-	_if.R.rsi = _argc;
-	_if.R.rdi = _if.rsp + 8;
+	_if.R.rdi = _argc;
+	_if.R.rsi = _if.rsp + 8;
+
 	palloc_free_page (file_name);
-	// hex_dump (_if.rsp, _if.rsp, 40, true);
+	// hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
 	/* Start switched process. */
 	do_iret (&_if);
 	NOT_REACHED ();

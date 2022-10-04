@@ -112,6 +112,14 @@ struct thread {
 	struct list_elem elem;              /* List element. */
 	struct list_elem all_elem;
 
+	// proj2
+	struct thread *parent;
+	struct list child_list;
+	struct list_elem child_elem;
+
+	struct semaphore *wait_sema;
+	
+
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
