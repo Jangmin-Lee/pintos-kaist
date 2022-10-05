@@ -74,9 +74,14 @@ initd (void *f_name) {
  * TID_ERROR if the thread cannot be created. */
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
-	/* Clone current thread to new thread.*/
-	return thread_create (name,
-			PRI_DEFAULT, __do_fork, thread_current ());
+	struct thread *curr = thread_current();
+
+	tid_t tid = thread_create (name, PRI_DEFAULT, __do_fork, curr);
+	if (tid == TID_ERROR){
+		return TID_ERROR;
+	}
+
+	return 
 }
 
 #ifndef VM
@@ -162,12 +167,20 @@ error:
 int
 process_exec (void *f_name) {
 	char *file_name = f_name;
+
+	char *_file_name[48];
+	memcpy(_file_name, file_name, strlen(file_name) + 1);
+	// printf(">>>> %s\n", _file_name);
+
 	// split file_name by space
 	// add \0 to all element
 	// USER_STACK(0x47480000) is our stack's starting point, stored at rsp register
 	// calculate each elements length and apply to stack address (grow down)
 	// set rdi in _if.R same as elements num
 	// set rsi in _id.R same as argv[0] (real file)
+	// exec-once를 하다보니 file_name에 접근시 이상한 값을 리턴하며 죽는 문제 발셍
+	// thread의 f_name이 들어오는 rax 값을 어딘가에서 수정하고 있는 것 같음
+	// file_name의 복사본을 만들어 local var로 사용
 	bool success;
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
@@ -176,7 +189,6 @@ process_exec (void *f_name) {
 	_if.ds = _if.es = _if.ss = SEL_UDSEG;
 	_if.cs = SEL_UCSEG;
 	_if.eflags = FLAG_IF | FLAG_MBS;
-
 	/* We first kill the current context */
 	process_cleanup ();
 
@@ -186,7 +198,7 @@ process_exec (void *f_name) {
 	{
 		char *token, *save_ptr;
 		for (
-			token = strtok_r (file_name, " ", &save_ptr);
+			token = strtok_r (_file_name, " ", &save_ptr);
 			token != NULL;
 			token = strtok_r (NULL, " ", &save_ptr)
 		) {
@@ -194,14 +206,13 @@ process_exec (void *f_name) {
 			_argc ++;
 		}
 	}
-
 	/* And then load the binary */
-	success = load (file_name, &_if);
-
+	success = load (_file_name, &_if);
+	palloc_free_page (file_name);
 	/* If load failed, quit. */
 	if (!success)
 		return -1;
-	
+
 	char *argptr_list[_argc-1];
 	// push args value and get pointer
 	for (int i = _argc - 1; i >= 0; i--) {
@@ -232,10 +243,9 @@ process_exec (void *f_name) {
 		_if.rsp -= sizeof(void *);
 		memset(_if.rsp, 0, sizeof(void *));
 	}
-	
+
 	_if.R.rdi = _argc;
 	_if.R.rsi = _if.rsp + 8;
-	palloc_free_page (file_name);
 	// hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
 	/* Start switched process. */
 	do_iret (&_if);

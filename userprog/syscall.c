@@ -6,6 +6,7 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/loader.h"
+#include "threads/palloc.h"
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
@@ -73,7 +74,19 @@ int fork (const char *thread_name) {
 }
 int exec (const char *file) {
 	check_valid_ptr(file);
-	return process_exec(file);
+
+	char *fn_copy = palloc_get_page(PAL_ZERO);
+	if (fn_copy == NULL) {
+		exit(-1);
+	}
+	strlcpy(fn_copy, file, strlen(file)+1);
+
+	if (process_exec(fn_copy) == -1) {
+		exit(-1);
+	}
+
+	NOT_REACHED();
+	return 0;
 }
 
 int wait (tid_t pid) {
