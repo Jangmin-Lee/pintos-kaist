@@ -119,7 +119,10 @@ struct thread {
 	int exit_status;
 	struct semaphore wait_sema;
 	struct semaphore clean_sema;
+	struct semaphore fork_sema;
 	struct file* fd_table[128];
+	struct intr_frame parent_if;
+	struct file *active_file;
 	
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */

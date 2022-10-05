@@ -51,8 +51,11 @@ process_create_initd (const char *file_name) {
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
 
+	char *temp_val;
+	strtok_r(file_name, " ", &temp_val);
+
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (strtok_r(NULL, " ", &file_name), PRI_DEFAULT, initd, fn_copy);
+	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
 	return tid;
@@ -73,15 +76,21 @@ initd (void *f_name) {
 /* Clones the current process as `name`. Returns the new process's thread id, or
  * TID_ERROR if the thread cannot be created. */
 tid_t
-process_fork (const char *name, struct intr_frame *if_ UNUSED) {
+process_fork (const char *name, struct intr_frame *if_) {
 	struct thread *curr = thread_current();
+	memcpy(&curr->parent_if, if_, sizeof(struct intr_frame));
 
 	tid_t tid = thread_create (name, PRI_DEFAULT, __do_fork, curr);
 	if (tid == TID_ERROR){
 		return TID_ERROR;
 	}
+	struct thread *child = find_child(tid);
+	sema_down(&child->fork_sema);
 
-	return 
+	if (child -> exit_status == TID_ERROR) {
+		return TID_ERROR;
+	}
+	return tid;
 }
 
 #ifndef VM
@@ -96,21 +105,26 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	bool writable;
 
 	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
-
+	if (is_kernel_vaddr(va)) return true;
 	/* 2. Resolve VA from the parent's page map level 4. */
 	parent_page = pml4_get_page (parent->pml4, va);
-
+	if (parent_page == NULL) return false;
 	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
 	 *    TODO: NEWPAGE. */
-
+	newpage = palloc_get_page(PAL_USER);
+	if (newpage == NULL) return false;
 	/* 4. TODO: Duplicate parent's page to the new page and
 	 *    TODO: check whether parent's page is writable or not (set WRITABLE
 	 *    TODO: according to the result). */
+
+	memcpy(newpage, parent_page, PGSIZE);
+	writable = is_writable(pte);
 
 	/* 5. Add new page to child's page table at address VA with WRITABLE
 	 *    permission. */
 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
 		/* 6. TODO: if fail to insert page, do error handling. */
+		return false;
 	}
 	return true;
 }
@@ -126,11 +140,12 @@ __do_fork (void *aux) {
 	struct thread *parent = (struct thread *) aux;
 	struct thread *current = thread_current ();
 	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
-	struct intr_frame *parent_if;
+	struct intr_frame *parent_if = &parent->parent_if;
 	bool succ = true;
 
 	/* 1. Read the cpu context to local stack. */
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
+	if_.R.rax = 0;
 
 	/* 2. Duplicate PT */
 	current->pml4 = pml4_create();
@@ -143,23 +158,31 @@ __do_fork (void *aux) {
 	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
 		goto error;
 #else
-	if (!pml4_for_each (parent->pml4, duplicate_pte, parent))
+	if (!pml4_for_each (parent->pml4, duplicate_pte, parent)){
 		goto error;
+	}
 #endif
 
 	/* TODO: Your code goes here.
 	 * TODO: Hint) To duplicate the file object, use `file_duplicate`
 	 * TODO:       in include/filesys/file.h. Note that parent should not return
 	 * TODO:       from the fork() until this function successfully duplicates
-	 * TODO:       the resources of parent.*/
-
-	process_init ();
-
+		* TODO:       the resources of parent.*/
+	struct file *_file;
+	for (int i = 2; i <= 128; i++) {
+		_file = parent -> fd_table[i];
+		if (_file != NULL) {
+			current -> fd_table[i] = file_duplicate(_file);;
+		}
+	}
+	sema_up(&current -> fork_sema);
 	/* Finally, switch to the newly created process. */
 	if (succ)
 		do_iret (&if_);
 error:
-	thread_exit ();
+	current -> exit_status = TID_ERROR;
+	sema_up(&current -> fork_sema);
+	exit (-1);
 }
 
 /* Switch the current execution context to the f_name.
@@ -168,7 +191,7 @@ int
 process_exec (void *f_name) {
 	char *file_name = f_name;
 
-	char *_file_name[48];
+	char *_file_name[20];
 	memcpy(_file_name, file_name, strlen(file_name) + 1);
 	// printf(">>>> %s\n", _file_name);
 
@@ -193,19 +216,19 @@ process_exec (void *f_name) {
 	process_cleanup ();
 
 	// max # of args = 128 -> /2 with space = 64.
+	// 64개씩 들어오는 경우 없을 것 같아서 32
 	int _argc = 0;
-	char *arg_list[64];
-	{
-		char *token, *save_ptr;
-		for (
-			token = strtok_r (_file_name, " ", &save_ptr);
-			token != NULL;
-			token = strtok_r (NULL, " ", &save_ptr)
-		) {
-			arg_list[_argc] = token;
-			_argc ++;
-		}
+	char *arg_list[32];
+	char *token, *save_ptr;
+	for (
+		token = strtok_r (_file_name, " ", &save_ptr);
+		token != NULL;
+		token = strtok_r (NULL, " ", &save_ptr)
+	) {
+		arg_list[_argc] = token;
+		_argc ++;
 	}
+
 	/* And then load the binary */
 	success = load (_file_name, &_if);
 	palloc_free_page (file_name);
@@ -264,9 +287,8 @@ process_exec (void *f_name) {
  * does nothing. */
 int
 process_wait (tid_t child_tid) {
-	struct thread *curr = thread_current();
 	struct thread *child = find_child(child_tid);
-	if (!child) {
+	if (child == NULL) {
 		return -1;
 	}
 
@@ -274,16 +296,25 @@ process_wait (tid_t child_tid) {
 	list_remove(&child -> child_elem);
 	int child_exit = child -> exit_status;
 	sema_up(&child -> clean_sema);
-	return child -> exit_status;
+	return child_exit;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
 void
 process_exit (void) {
 	struct thread *curr = thread_current ();
-	process_cleanup ();
+	struct file *_file;
+
+	for (int i = 2; i <= 128; i++) {
+		_file = curr -> fd_table[i];
+		file_close(_file);
+		curr -> fd_table[i] = NULL;
+	}
+
+	file_close(curr->active_file);
 	sema_up(&curr -> wait_sema);
 	sema_down(&curr -> clean_sema);
+	process_cleanup ();
 }
 
 /* Free the current process's resources. */
@@ -408,6 +439,8 @@ load (const char *file_name, struct intr_frame *if_) {
 		printf ("load: %s: open failed\n", file_name);
 		goto done;
 	}
+	t-> active_file = file;
+	file_deny_write(file);
 
 	/* Read and verify executable header. */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -488,7 +521,6 @@ load (const char *file_name, struct intr_frame *if_) {
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	file_close (file);
 	return success;
 }
 

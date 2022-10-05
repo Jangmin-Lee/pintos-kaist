@@ -565,7 +565,7 @@ find_child(tid_t target_tid){
 	struct list *child_list = &(curr -> child_list);
 
 	if (child_list == NULL) {
-		return;
+		return NULL;
 	}
 	for (e = list_begin (child_list); e != list_end (child_list); e = list_next (e)) {
 		target = list_entry(e, struct thread, child_elem);
@@ -573,7 +573,7 @@ find_child(tid_t target_tid){
 			return target;
 		}
 	}
-	return;
+	return NULL;
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -647,9 +647,13 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->fp_recent_cpu = RECENT_DEFAULT;
 
 	// proj 2;
+	t->exit_status = 0;
 	list_init (&t -> child_list);
 	sema_init (&t -> wait_sema, 0);
 	sema_init (&t -> clean_sema, 0);
+	sema_init (&t -> fork_sema, 0);
+	t->active_file = NULL;
+
 	t -> exit_status = 0;
 	t -> parent = NULL;
 	for (int i = 0; i < 128; i ++) t->fd_table[i] = NULL;

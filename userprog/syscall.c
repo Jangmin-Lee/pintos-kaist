@@ -63,15 +63,11 @@ void exit (int status) {
 	thread_exit();
 }
 
-int fork (const char *thread_name) {
+int fork (const char *thread_name, struct intr_frame *f) {
 	check_valid_ptr(thread_name);
-	struct thread *curr = thread_current();
-	// tid_t pid = thread_create(thread_name, curr -> priority, );
-	// if (true){
-	// 	return TID_ERROR;
-	// }
-	process_fork(thread_name, &curr -> tf);
+	process_fork(thread_name, f);
 }
+
 int exec (const char *file) {
 	check_valid_ptr(file);
 
@@ -116,7 +112,7 @@ bool remove (const char *file) {
 int open (const char *file) {
 	check_valid_ptr(file);
 	struct file *file_ptr = filesys_open(file);
-	if (!file_ptr) {
+	if (file_ptr == NULL) {
 		return -1;
 	}
 	int fd = allocate_fd();
@@ -233,7 +229,7 @@ syscall_handler (struct intr_frame *f) {
 			exit((int) f -> R.rdi);
 			break;
 		case SYS_FORK:
-			f -> R.rax = fork((char *) f -> R.rdi);
+			f -> R.rax = fork((char *) f -> R.rdi, f);
 			break;
 		case SYS_EXEC:
 			f -> R.rax = exec((char *) f -> R.rdi);
