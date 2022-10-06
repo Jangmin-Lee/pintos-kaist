@@ -307,6 +307,9 @@ thread_current (void) {
 	   have overflowed its stack.  Each thread has less than 4 kB
 	   of stack, so a few big automatic arrays or moderate
 	   recursion can cause stack overflow. */
+	// ㄹㅇ이가 이거가...?
+	// GC 돌기전에 memory를 너무 과하게 써서 (아마 FD 쪽에서)?
+	// memory를 새롭게 할당받을 필요가 있다?
 	ASSERT (is_thread (t));
 	ASSERT (t->status == THREAD_RUNNING);
 
@@ -656,7 +659,15 @@ init_thread (struct thread *t, const char *name, int priority) {
 
 	t -> exit_status = 0;
 	t -> parent = NULL;
+	// t->fd_table = palloc_get_multiple(PAL_ZERO, 3);
+	// if (t -> fd_table == NULL) {
+	// 	return -1;
+	// } 
+	// struct semaphore *sample;
+	// sema_init(&sample);
+	// sema_down(&sample);
 	for (int i = 0; i < 128; i ++) t->fd_table[i] = NULL;
+	// sema_up(&sample);
 
 	list_push_back(&all_list, &t -> all_elem);
 }

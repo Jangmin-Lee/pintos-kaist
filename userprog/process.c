@@ -168,6 +168,10 @@ __do_fork (void *aux) {
 	 * TODO:       in include/filesys/file.h. Note that parent should not return
 	 * TODO:       from the fork() until this function successfully duplicates
 		* TODO:       the resources of parent.*/
+	// 초기화되지 않은 fd_table에 접근해서 문제 발생
+	// fd_table은 128짜리 fixed param이었는데 초기화하는 과정에서 for 루프를 돌게 되고
+	// 이떄 부모의 for_loop가 완료되지 않은 상태에서 자식이 생성되면서 자식이 참조를 시작하니까 문제가 되는 것 같음
+	// sync를 보장해주고나 fd_table의 초기화를 설정해줄 필요가 있다.
 	struct file *_file;
 	for (int i = 2; i <= 128; i++) {
 		_file = parent -> fd_table[i];

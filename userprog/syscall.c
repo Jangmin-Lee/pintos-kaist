@@ -44,9 +44,9 @@ syscall_init (void) {
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
 }
 
-void check_valid_ptr(const void *_ptr) {
+void check_valid_ptr(const uint64_t *_ptr) {
 	// 없는경우, KERNEL 영역인 경우, User영역이지만 valid하지 않은 경우
-	if (!_ptr || is_kernel_vaddr(_ptr) || !pml4_get_page(thread_current() -> pml4, _ptr)) {
+	if (_ptr == NULL || is_kernel_vaddr(_ptr) || pml4_get_page(thread_current() -> pml4, _ptr) == NULL) {
 		exit(-1);
 	}
 }
@@ -154,8 +154,8 @@ int read (int fd, void *buffer, unsigned length) {
 		return -1;
 	}
 	struct file *_file = thread_current() -> fd_table[fd];
-	if (!_file) {
-		return -1;
+	if (_file == NULL) {
+		exit(-1);
 	}
 	return file_read(_file, buffer, length);
 }
@@ -166,12 +166,12 @@ int write (int fd, const void *buffer, unsigned length) {
 		putbuf(buffer, length);
 		return length;
 	}
-	if (fd < 1 || fd > 128) {
+	if (fd < 2 || fd > 128) {
 		return -1;
 	}
 	struct file *_file = thread_current() -> fd_table[fd];
-	if (!_file) {
-		return -1;
+	if (_file == NULL) {
+		exit(-1);
 	}
 	return file_write(_file, buffer, length);
 }
@@ -218,7 +218,7 @@ void
 syscall_handler (struct intr_frame *f) {
 	int sys_num = f -> R.rax;
 	// %rdi, %rsi, %rdx, %r10, %r8, and %r9.
-
+// 
 	// printf("num : %d\n", sys_num);
 	switch (sys_num)
 	{
@@ -263,6 +263,9 @@ syscall_handler (struct intr_frame *f) {
 			break;
 		case SYS_CLOSE:
 			close((int) f -> R.rdi);
+			break;
+		default:
+			exit(-1);
 			break;
 	}
 }
