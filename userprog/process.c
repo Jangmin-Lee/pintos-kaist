@@ -177,8 +177,15 @@ __do_fork (void *aux) {
 		_file = parent -> fd_table[i];
 		if (_file != NULL) {
 			current -> fd_table[i] = file_duplicate(_file);;
+			if (_file > 2) {
+				current -> fd_table[i] = file_duplicate(_file);
+			} else {
+				current -> fd_table[i] = _file;
+			}
 		}
 	}
+	current -> next_fd = parent -> next_fd;
+
 	sema_up(&current -> fork_sema);
 	/* Finally, switch to the newly created process. */
 	if (succ)

@@ -113,15 +113,15 @@ struct thread {
 	struct list_elem all_elem;
 
 	// proj2
-	struct thread *parent;
+	int exit_status;
+	int next_fd;
 	struct list child_list;
 	struct list_elem child_elem;
-	int exit_status;
 	struct semaphore wait_sema;
 	struct semaphore clean_sema;
 	struct semaphore fork_sema;
-	struct file* fd_table[128];
 	struct intr_frame parent_if;
+	struct file* fd_table[128];
 	struct file *active_file;
 	
 #ifdef USERPROG

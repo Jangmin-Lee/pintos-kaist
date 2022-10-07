@@ -36,6 +36,7 @@ syscall_init (void) {
 	write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48  |
 			((uint64_t)SEL_KCSEG) << 32);
 	write_msr(MSR_LSTAR, (uint64_t) syscall_entry);
+	lock_init(&file_lock);
 
 	/* The interrupt service rountine should not serve any interrupts
 	 * until the syscall_entry swaps the userland stack to the kernel
@@ -111,17 +112,28 @@ bool remove (const char *file) {
 
 int open (const char *file) {
 	check_valid_ptr(file);
+	lock_acquire(&file_lock);
 	struct file *file_ptr = filesys_open(file);
 	if (file_ptr == NULL) {
-		return -1;
-	}
-	int fd = allocate_fd();
-	if (fd < 1 || fd > 128) {
+		lock_release(&file_lock);
 		return -1;
 	}
 	struct thread *curr = thread_current();
-	curr -> fd_table[fd] = file_ptr;
-	return fd;
+	// int fd = allocate_fd();
+	for (int i = curr -> next_fd; i <= 128; i++) {
+		if (curr -> fd_table[i] == NULL) {
+			curr -> next_fd = i;
+			break;
+		}
+	}
+	// curr -> fd_table[fd] = file_ptr;
+	if (curr -> next_fd < 1 || curr -> next_fd > 128) {
+		lock_release(&file_lock);
+		return -1;
+	}
+	curr -> fd_table[curr -> next_fd] = file_ptr;
+	lock_release(&file_lock);
+	return curr -> next_fd;
 	// return file descriptor
 	// 0 : stdin / 1 : stdout
 	// 파일을 각 프로세스가 열 때 마다 각 fd가 생긴다.
@@ -147,33 +159,46 @@ int filesize (int fd) {
 
 int read (int fd, void *buffer, unsigned length) {
 	check_valid_ptr(buffer);
+	lock_acquire(&file_lock);
 	if (fd == 0) {
+		lock_release(&file_lock);
 		return input_getc ();
 	}
+
 	if (fd < 1 || fd > 128) {
+		lock_release(&file_lock);
 		return -1;
 	}
 	struct file *_file = thread_current() -> fd_table[fd];
 	if (_file == NULL) {
-		exit(-1);
+		lock_release(&file_lock);
+		return -1;
 	}
-	return file_read(_file, buffer, length);
+	int size = file_read(_file, buffer, length);
+	lock_release(&file_lock);
+	return size;
 }
 
 int write (int fd, const void *buffer, unsigned length) {
 	check_valid_ptr(buffer);
+	lock_acquire(&file_lock);
 	if (fd == 1) {
 		putbuf(buffer, length);
+		lock_release(&file_lock);
 		return length;
 	}
 	if (fd < 2 || fd > 128) {
+		lock_release(&file_lock);
 		return -1;
 	}
 	struct file *_file = thread_current() -> fd_table[fd];
 	if (_file == NULL) {
-		exit(-1);
+		lock_release(&file_lock);
+		return -1;
 	}
-	return file_write(_file, buffer, length);
+	int size = file_write(_file, buffer, length);
+	lock_release(&file_lock);
+	return size;
 }
 
 void seek (int fd, unsigned position) {
@@ -200,16 +225,15 @@ unsigned tell (int fd) {
 
 void close (int fd) {
 	if (fd < 1 || fd > 128) {
-		return -1;
+		exit(-1);
 	}
 	struct thread *curr = thread_current();
 	struct file *_file = curr -> fd_table[fd];
-	if (!_file) {
+	if (_file = NULL) {
 		exit(-1);
 	}
-	file_close(_file);
 	curr -> fd_table[fd] = NULL;
-	return;
+	file_close(_file);
 }
 
 

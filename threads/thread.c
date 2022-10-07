@@ -210,7 +210,6 @@ thread_create (const char *name, int priority,
 	/* Initialize thread. */
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
-
 	/* Call the kernel_thread if it scheduled.
 	 * Note) rdi is 1st argument, and rsi is 2nd argument. */
 	t->tf.rip = (uintptr_t) kernel_thread;
@@ -223,7 +222,8 @@ thread_create (const char *name, int priority,
 	t->tf.eflags = FLAG_IF;
 	// proj 2
 	struct thread* curr = thread_current();
-	t->parent = curr;
+	t->next_fd = 2;
+	// t->parent = curr;
 	list_push_back(&curr->child_list, &t->child_elem);
 	// 
 	/* Add to run queue. */
@@ -658,16 +658,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->active_file = NULL;
 
 	t -> exit_status = 0;
-	t -> parent = NULL;
-	// t->fd_table = palloc_get_multiple(PAL_ZERO, 3);
-	// if (t -> fd_table == NULL) {
-	// 	return -1;
-	// } 
-	// struct semaphore *sample;
-	// sema_init(&sample);
-	// sema_down(&sample);
 	for (int i = 0; i < 128; i ++) t->fd_table[i] = NULL;
-	// sema_up(&sample);
 
 	list_push_back(&all_list, &t -> all_elem);
 }
@@ -852,12 +843,12 @@ allocate_tid (void) {
 	return tid;
 }
 
-int allocate_fd (void) {
-	static int next_fd = 2;
+int allocate_fd () {
+	static int _next_fd = 2;
 	int fd;
 
 	lock_acquire (&fd_lock);
-	fd = next_fd++;
+	fd = _next_fd++;
 	lock_release (&fd_lock);
 
 	return fd;
