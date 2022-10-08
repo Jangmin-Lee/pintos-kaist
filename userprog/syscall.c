@@ -112,28 +112,32 @@ bool remove (const char *file) {
 
 int open (const char *file) {
 	check_valid_ptr(file);
+
+	int new_fd = -1;
 	lock_acquire(&file_lock);
 	struct file *file_ptr = filesys_open(file);
 	if (file_ptr == NULL) {
-		lock_release(&file_lock);
-		return -1;
+		new_fd = -1;
 	}
-	struct thread *curr = thread_current();
-	// int fd = allocate_fd();
-	for (int i = curr -> next_fd; i <= 128; i++) {
-		if (curr -> fd_table[i] == NULL) {
-			curr -> next_fd = i;
-			break;
+	else {
+		struct thread *curr = thread_current();
+		// int fd = allocate_fd();
+		for (int i = curr -> next_fd; i <= 128; i++) {
+			if (curr -> fd_table[i] == NULL) {
+				curr -> next_fd = i;
+				break;
+			}
+		}
+		// curr -> fd_table[fd] = file_ptr;
+		if (curr -> next_fd < 1 || curr -> next_fd > 128) {
+			new_fd = -1;
+		} else {
+			curr -> fd_table[curr -> next_fd] = file_ptr;
+			new_fd = curr -> next_fd;
 		}
 	}
-	// curr -> fd_table[fd] = file_ptr;
-	if (curr -> next_fd < 1 || curr -> next_fd > 128) {
-		lock_release(&file_lock);
-		return -1;
-	}
-	curr -> fd_table[curr -> next_fd] = file_ptr;
 	lock_release(&file_lock);
-	return curr -> next_fd;
+	return new_fd;
 	// return file descriptor
 	// 0 : stdin / 1 : stdout
 	// 파일을 각 프로세스가 열 때 마다 각 fd가 생긴다.
@@ -151,7 +155,7 @@ int filesize (int fd) {
 		return -1;
 	}
 	struct file *_file = thread_current() -> fd_table[fd];
-	if (!_file) {
+	if (_file == NULL) {
 		return -1;
 	}
 	return file_length(_file);
@@ -159,46 +163,51 @@ int filesize (int fd) {
 
 int read (int fd, void *buffer, unsigned length) {
 	check_valid_ptr(buffer);
-	lock_acquire(&file_lock);
 	if (fd == 0) {
-		lock_release(&file_lock);
 		return input_getc ();
 	}
-
+	int ret_val = -1;
+	lock_acquire(&file_lock);
 	if (fd < 1 || fd > 128) {
-		lock_release(&file_lock);
-		return -1;
+		ret_val = -1;
+	} else {
+		struct file *_file = thread_current() -> fd_table[fd];
+		if (_file == NULL) {
+			ret_val = -1;
+		} else {
+			ret_val = file_read(_file, buffer, length);
+		}
 	}
-	struct file *_file = thread_current() -> fd_table[fd];
-	if (_file == NULL) {
-		lock_release(&file_lock);
-		return -1;
-	}
-	int size = file_read(_file, buffer, length);
 	lock_release(&file_lock);
-	return size;
+	return ret_val;
 }
 
 int write (int fd, const void *buffer, unsigned length) {
 	check_valid_ptr(buffer);
+
+	int ret_val = -1;
 	lock_acquire(&file_lock);
 	if (fd == 1) {
 		putbuf(buffer, length);
-		lock_release(&file_lock);
-		return length;
+		ret_val = length;
 	}
-	if (fd < 2 || fd > 128) {
-		lock_release(&file_lock);
-		return -1;
+	else if (fd < 2 || fd > 128) {
+		ret_val = -1;
+	} else {
+		struct file *_file = thread_current() -> fd_table[fd];
+		if (_file == NULL) {
+			ret_val = -1;
+		} else {
+			// printf("(pid: %d) file_write, possible? : %s\n", thread_current() -> tid,  is_deny(_file) ? "denied" : "possible");
+			// printf("pointer failed? : %p\n", _file);
+			// printf("buff : %d, file_pos: %d \n", length, file_pos(_file));
+			ret_val = file_write(_file, buffer, length);
+			// printf("buff : %d, file_pos: %d \n", length, file_pos(_file));
+		}
 	}
-	struct file *_file = thread_current() -> fd_table[fd];
-	if (_file == NULL) {
-		lock_release(&file_lock);
-		return -1;
-	}
-	int size = file_write(_file, buffer, length);
+	// printf("(pid: %d) fin? \n", thread_current() -> tid);
 	lock_release(&file_lock);
-	return size;
+	return ret_val;
 }
 
 void seek (int fd, unsigned position) {
@@ -206,7 +215,7 @@ void seek (int fd, unsigned position) {
 		return -1;
 	}
 	struct file *_file = thread_current() -> fd_table[fd];
-	if (!_file) {
+	if (_file == NULL) {
 		return -1;
 	}
 	file_seek(_file, position);
@@ -217,7 +226,7 @@ unsigned tell (int fd) {
 		return -1;
 	}
 	struct file *_file = thread_current() -> fd_table[fd];
-	if (!_file) {
+	if (_file == NULL) {
 		return -1;
 	}
 	return file_tell(_file);
@@ -229,7 +238,7 @@ void close (int fd) {
 	}
 	struct thread *curr = thread_current();
 	struct file *_file = curr -> fd_table[fd];
-	if (_file = NULL) {
+	if (_file == NULL) {
 		exit(-1);
 	}
 	curr -> fd_table[fd] = NULL;

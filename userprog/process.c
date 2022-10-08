@@ -172,13 +172,19 @@ __do_fork (void *aux) {
 	// fd_table은 128짜리 fixed param이었는데 초기화하는 과정에서 for 루프를 돌게 되고
 	// 이떄 부모의 for_loop가 완료되지 않은 상태에서 자식이 생성되면서 자식이 참조를 시작하니까 문제가 되는 것 같음
 	// sync를 보장해주고나 fd_table의 초기화를 설정해줄 필요가 있다.
+	// 여기서 file_duplicate를 여러번 불러서 inode_deny_count가 2배 증가함, -> rox-multichild를 통과못하는 것 같음
+	// 어떤 경우에 file_duplicate 해야하는가?.
 	struct file *_file;
 	for (int i = 2; i <= 128; i++) {
 		_file = parent -> fd_table[i];
 		if (_file != NULL) {
-			current -> fd_table[i] = file_duplicate(_file);;
 			if (_file > 2) {
-				current -> fd_table[i] = file_duplicate(_file);
+				struct file *_dup = file_duplicate(_file);
+				if (_dup == NULL) {
+					goto error;
+				}
+				file_allow_write(_dup);
+				current -> fd_table[i] = _dup;
 			} else {
 				current -> fd_table[i] = _file;
 			}
@@ -317,9 +323,11 @@ process_exit (void) {
 	struct file *_file;
 
 	for (int i = 2; i <= 128; i++) {
-		_file = curr -> fd_table[i];
-		file_close(_file);
-		curr -> fd_table[i] = NULL;
+		if (curr -> fd_table[i] != NULL) {
+			_file = curr -> fd_table[i];
+			file_close(_file);
+			curr -> fd_table[i] = NULL;
+		}
 	}
 
 	file_close(curr->active_file);

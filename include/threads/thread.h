@@ -123,7 +123,6 @@ struct thread {
 	struct intr_frame parent_if;
 	struct file* fd_table[128];
 	struct file *active_file;
-	
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
