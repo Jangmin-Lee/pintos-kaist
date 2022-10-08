@@ -178,16 +178,12 @@ __do_fork (void *aux) {
 	for (int i = 2; i <= 128; i++) {
 		_file = parent -> fd_table[i];
 		if (_file != NULL) {
-			if (_file > 2) {
-				struct file *_dup = file_duplicate(_file);
-				if (_dup == NULL) {
-					goto error;
-				}
-				file_allow_write(_dup);
-				current -> fd_table[i] = _dup;
-			} else {
-				current -> fd_table[i] = _file;
+			struct file *_dup = file_duplicate(_file);
+			if (_dup == NULL) {
+				goto error;
 			}
+			file_allow_write(_dup);
+			current -> fd_table[i] = _dup;
 		}
 	}
 	current -> next_fd = parent -> next_fd;
@@ -245,10 +241,11 @@ process_exec (void *f_name) {
 		arg_list[_argc] = token;
 		_argc ++;
 	}
-
 	/* And then load the binary */
+	// printf("(exec) pid : %d, load start\n", curr -> tid);
 	success = load (_file_name, &_if);
 	palloc_free_page (file_name);
+	// printf("(exec) pid : %d, load end\n", curr -> tid);
 	/* If load failed, quit. */
 	if (!success)
 		return -1;
@@ -458,8 +455,8 @@ load (const char *file_name, struct intr_frame *if_) {
 		printf ("load: %s: open failed\n", file_name);
 		goto done;
 	}
-	t-> active_file = file;
 	file_deny_write(file);
+	t-> active_file = file;
 
 	/* Read and verify executable header. */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr

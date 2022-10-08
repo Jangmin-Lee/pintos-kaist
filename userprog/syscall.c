@@ -219,6 +219,7 @@ void seek (int fd, unsigned position) {
 	if (_file == NULL) {
 		exit(-1);
 	}
+	// printf("seek called? at pos %d\n", position);
 	file_seek(_file, position);
 	lock_release(&file_lock);
 }
@@ -296,7 +297,7 @@ syscall_handler (struct intr_frame *f) {
 			f -> R.rax = write((int) f -> R.rdi, (const void *) f -> R.rsi, (unsigned) f -> R.rdx);
 			break;
 		case SYS_SEEK:
-			seek((int) f -> R.rdi, (unsigned) f -> R.rdx);
+			seek((int) f -> R.rdi, (unsigned) f -> R.rsi);
 			break;
 		case SYS_TELL:
 			f -> R.rax = tell((int) f -> R.rdi);
