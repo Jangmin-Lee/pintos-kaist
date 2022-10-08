@@ -212,30 +212,36 @@ int write (int fd, const void *buffer, unsigned length) {
 
 void seek (int fd, unsigned position) {
 	if (fd < 1 || fd > 128) {
-		return -1;
+		exit(-1);
 	}
+	lock_acquire(&file_lock);
 	struct file *_file = thread_current() -> fd_table[fd];
 	if (_file == NULL) {
-		return -1;
+		exit(-1);
 	}
 	file_seek(_file, position);
+	lock_release(&file_lock);
 }
 
 unsigned tell (int fd) {
 	if (fd < 1 || fd > 128) {
-		return -1;
+		exit(-1);
 	}
+	lock_acquire(&file_lock);
 	struct file *_file = thread_current() -> fd_table[fd];
 	if (_file == NULL) {
-		return -1;
+		exit(-1);
 	}
-	return file_tell(_file);
+	unsigned pos = file_tell(_file);
+	lock_release(&file_lock);
+	return pos;
 }
 
 void close (int fd) {
 	if (fd < 1 || fd > 128) {
 		exit(-1);
 	}
+	lock_acquire(&file_lock);
 	struct thread *curr = thread_current();
 	struct file *_file = curr -> fd_table[fd];
 	if (_file == NULL) {
@@ -243,6 +249,7 @@ void close (int fd) {
 	}
 	curr -> fd_table[fd] = NULL;
 	file_close(_file);
+	lock_release(&file_lock);
 }
 
 
