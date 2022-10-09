@@ -230,27 +230,29 @@ lock_acquire (struct lock *lock) {
 
    struct thread* curr = thread_current ();
 
-   // if lock has already holder
-   if (lock->holder != NULL) {
-      struct thread *holder = lock -> holder;
-      // if holder_priority is lower than me, donation
-      if (holder -> priority < curr -> priority) {
-         // Lock A, B를 L이 동시에 가지고 있을 때 Release 시 맞는 lock만 retrieve하기 위함.
-         curr->next_lock = lock;
-         // holder의 리스트에 current를 넣어준다 (lock release 시에 priority를 비교해야 함)
-         list_insert_ordered(&(holder -> donate_list), 
-            &curr->donate_elem, donate_priority_high, NULL);
-         // Donation
-         int depth = 0;
-         struct thread *next_lock_holder = holder;
-	      while (depth < 8) {
-            // 지금 thread가 기다리는 lock을 가지고 있는 thread의 priority를 높인다.
-            next_lock_holder -> priority = curr -> priority;
-            // current holder가 기다리는 lock이 없는 경우에는 break
-            if (next_lock_holder -> next_lock == NULL) break;
-            // lock 홀더의 lock 홀더가 존재하는 경우에 해당 정보 업데이트
-            next_lock_holder = next_lock_holder -> next_lock -> holder;
-            depth++;
+   if (!thread_mlfqs) {
+      // if lock has already holder
+      if (lock->holder != NULL) {
+         struct thread *holder = lock -> holder;
+         // if holder_priority is lower than me, donation
+         if (holder -> priority < curr -> priority) {
+            // Lock A, B를 L이 동시에 가지고 있을 때 Release 시 맞는 lock만 retrieve하기 위함.
+            curr->next_lock = lock;
+            // holder의 리스트에 current를 넣어준다 (lock release 시에 priority를 비교해야 함)
+            list_insert_ordered(&(holder -> donate_list), 
+               &curr->donate_elem, donate_priority_high, NULL);
+            // Donation
+            int depth = 0;
+            struct thread *next_lock_holder = holder;
+            while (depth < 8) {
+               // 지금 thread가 기다리는 lock을 가지고 있는 thread의 priority를 높인다.
+               next_lock_holder -> priority = curr -> priority;
+               // current holder가 기다리는 lock이 없는 경우에는 break
+               if (next_lock_holder -> next_lock == NULL) break;
+               // lock 홀더의 lock 홀더가 존재하는 경우에 해당 정보 업데이트
+               next_lock_holder = next_lock_holder -> next_lock -> holder;
+               depth++;
+            }
          }
       }
    }
@@ -295,26 +297,28 @@ lock_release (struct lock *lock) {
 	struct list_elem *e;
    struct list *donate_list = &curr -> donate_list;
 
-   // 남은 donate 들에서 local maximal priority를 가져오기 위한 값
-   int donate_max_priority = curr -> original_priority;
-   if (curr -> priority < donate_max_priority) {
-      donate_max_priority = curr -> priority;
-   }
-   // 지금 current thread가 가지고 있는 lock이 풀릴 때 해당 lock을 위해 대기하면서
-   // priority를 donation 해줬던 thread 들을 donate 목록에서 삭제한다.
-   list_sort(&curr->donate_list, donate_priority_high, NULL);
-	for (e = list_begin (donate_list); e != list_end (donate_list); e = list_next (e)) {
-      struct thread *donate_thread = list_entry(e, struct thread, donate_elem);
-      if (donate_thread -> next_lock == lock) {
-         list_remove(&donate_thread->donate_elem);
-      } else {
-         if (donate_thread -> priority > donate_max_priority) {
-            donate_max_priority = donate_thread -> priority;
+   if (!thread_mlfqs) {
+      // 남은 donate 들에서 local maximal priority를 가져오기 위한 값
+      int donate_max_priority = curr -> original_priority;
+      if (curr -> priority < donate_max_priority) {
+         donate_max_priority = curr -> priority;
+      }
+      // 지금 current thread가 가지고 있는 lock이 풀릴 때 해당 lock을 위해 대기하면서
+      // priority를 donation 해줬던 thread 들을 donate 목록에서 삭제한다.
+      list_sort(&curr->donate_list, donate_priority_high, NULL);
+      for (e = list_begin (donate_list); e != list_end (donate_list); e = list_next (e)) {
+         struct thread *donate_thread = list_entry(e, struct thread, donate_elem);
+         if (donate_thread -> next_lock == lock) {
+            list_remove(&donate_thread->donate_elem);
+         } else {
+            if (donate_thread -> priority > donate_max_priority) {
+               donate_max_priority = donate_thread -> priority;
+            }
          }
       }
+      // Donate list 중 가장 높은 thread의 priority로 업데이트 진행
+      curr -> priority = donate_max_priority;
    }
-   // Donate list 중 가장 높은 thread의 priority로 업데이트 진행
-   curr -> priority = donate_max_priority;
 	lock->holder = NULL;
    // Before Release
 	sema_up (&lock->semaphore);

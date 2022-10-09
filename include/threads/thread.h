@@ -28,6 +28,10 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+/* mlfqs properties */ 
+#define NICE_DEFAULT 0
+#define RECENT_DEFAULT 0
+
 /* A kernel thread or user process.
  *
  * Each thread structure is stored in its own 4 kB page.  The
@@ -98,8 +102,15 @@ struct thread {
 	struct list donate_list;			/* Donation 해준 thread의 list */
 	struct list_elem donate_elem;		/* donate가 일어난 thread elem */
 
+	// mlqfs nice 
+	int nice;
+	// mlqfs fixed point value
+	int fp_recent_cpu;
+
+
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
+	struct list_elem all_elem;
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
@@ -155,6 +166,15 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+// mlqfs
+int thread_get_recent_cpu (void);
+void mlfqs_calculate_priority(struct thread *t);
+void mlfqs_calculate_recent_cpu(struct thread *t);
+void mlfqs_calculate_load_avg(void);
+void mlfqs_recent_cpu_incr(void);
+void mlfqs_update_recent_cpu(void);
+void mlfqs_update_priority(void);
 
 void do_iret (struct intr_frame *tf);
 

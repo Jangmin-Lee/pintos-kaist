@@ -95,10 +95,6 @@ timer_sleep (int64_t ticks) {
 	ASSERT (intr_get_level () == INTR_ON);
 	thread_set_awake_ticks(start + ticks);
 	thread_sleep();
-	// timer_ticks < start + ticks 인 순간에 release 하면됨
-
-	// while (timer_elapsed (start) < ticks)
-	// 	thread_yield ();
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -130,6 +126,19 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick ();
+
+	if (thread_mlfqs) {
+		mlfqs_recent_cpu_incr();
+		// every 4 tick, current cpu priority calculate
+		if (ticks % 4 == 0) {
+			mlfqs_update_priority();
+			// // 1 second
+			if (ticks % TIMER_FREQ == 0) {
+				mlfqs_calculate_load_avg();
+				mlfqs_update_recent_cpu();
+			}
+		}
+	}
 	thread_awake(ticks);
 }
 
