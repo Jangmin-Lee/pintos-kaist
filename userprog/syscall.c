@@ -73,7 +73,7 @@ int exec (const char *file) {
 
 	char *fn_copy = palloc_get_page(PAL_ZERO);
 	if (fn_copy == NULL) {
-		return -1;
+		exit(-1);
 	}
 	strlcpy(fn_copy, file, strlen(file)+1);
 	if (process_exec(fn_copy) == TID_ERROR) {
@@ -150,9 +150,7 @@ int open (const char *file) {
 	{
 		return -1;
 	}
-
 	int fd = add_file_to_fdt(open_file);
-
 	if (fd == -1)
 	{
 		lock_acquire(&file_lock);
@@ -200,14 +198,14 @@ int read (int fd, void *buffer, unsigned length) {
 	if (fd < 1 || fd > 512) {
 		ret_val = -1;
 	} else {
-		lock_acquire(&file_lock);
 		struct file *_file = thread_current() -> fd_table[fd];
 		if (_file == NULL) {
 			ret_val = -1;
 		} else {
+			lock_acquire(&file_lock);
 			ret_val = file_read(_file, buffer, length);
+			lock_release(&file_lock);
 		}
-		lock_release(&file_lock);
 	}
 	return ret_val;
 }
@@ -226,7 +224,6 @@ int write (int fd, const void *buffer, unsigned length) {
 	else if (fd < 2 || fd > 512) {
 		ret_val = -1;
 	} else {
-		lock_acquire(&file_lock);
 		struct file *_file = thread_current() -> fd_table[fd];
 		if (_file == NULL) {
 			ret_val = -1;
@@ -234,10 +231,11 @@ int write (int fd, const void *buffer, unsigned length) {
 			// printf("(pid: %d) file_write, possible? : %s\n", thread_current() -> tid,  is_deny(_file) ? "denied" : "possible");
 			// printf("pointer failed? : %p\n", _file);
 			// printf("buff : %d, file_pos: %d \n", length, file_pos(_file));
+			lock_acquire(&file_lock);
 			ret_val = file_write(_file, buffer, length);
+			lock_release(&file_lock);
 			// printf("buff : %d, file_pos: %d \n", length, file_pos(_file));
 		}
-		lock_release(&file_lock);
 	}
 	// printf("(pid: %d) fin? \n", thread_current() -> tid);
 
@@ -248,12 +246,12 @@ void seek (int fd, unsigned position) {
 	if (fd < 2 || fd > 512) {
 		return;
 	}
-	lock_acquire(&file_lock);
 	struct file *_file = thread_current() -> fd_table[fd];
 	if (_file == NULL) {
 		return;
 	}
 	// printf("seek called? at pos %d\n", position);
+	lock_acquire(&file_lock);
 	file_seek(_file, position);
 	lock_release(&file_lock);
 }
@@ -262,11 +260,11 @@ unsigned tell (int fd) {
 	if (fd < 2 || fd > 512) {
 		return;
 	}
-	lock_acquire(&file_lock);
 	struct file *_file = thread_current() -> fd_table[fd];
 	if (_file == NULL) {
 		return;
 	}
+	lock_acquire(&file_lock);
 	unsigned pos = file_tell(_file);
 	lock_release(&file_lock);
 	return pos;
@@ -276,7 +274,6 @@ void close (int fd) {
 	if (fd < 2 || fd > 512) {
 		return;
 	}
-	// lock_acquire(&file_lock);
 	struct thread *curr = thread_current();
 	struct file *_file = curr -> fd_table[fd];
 	if (_file == NULL) {
@@ -284,7 +281,6 @@ void close (int fd) {
 	}
 	curr -> fd_table[fd] = NULL;
 	file_close(_file);
-	// lock_release(&file_lock);
 }
 
 

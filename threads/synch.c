@@ -306,6 +306,19 @@ lock_release (struct lock *lock) {
       // 지금 current thread가 가지고 있는 lock이 풀릴 때 해당 lock을 위해 대기하면서
       // priority를 donation 해줬던 thread 들을 donate 목록에서 삭제한다.
       list_sort(&curr->donate_list, donate_priority_high, NULL);
+
+      // e = list_begin(donate_list);
+      // while (e != list_tail(donate_list)) {
+      //    struct thread *donate_thread = list_entry(e, struct thread, donate_elem);
+      //    if (donate_thread -> next_lock == lock) {
+      //       list_remove(&donate_thread->donate_elem);
+      //    } else {
+      //       if (donate_thread -> priority > donate_max_priority) {
+      //          donate_max_priority = donate_thread -> priority;
+      //       }
+      //       donate_thread = list_next(donate_list);
+      //    }
+      // }
       for (e = list_begin (donate_list); e != list_end (donate_list); e = list_next (e)) {
          struct thread *donate_thread = list_entry(e, struct thread, donate_elem);
          if (donate_thread -> next_lock == lock) {

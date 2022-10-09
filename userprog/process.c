@@ -52,7 +52,7 @@ process_create_initd (const char *file_name) {
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
 
-	char *temp_val;
+	char temp_val[32];
 	strtok_r(file_name, " ", &temp_val);
 
 	/* Create a new thread to execute FILE_NAME. */
@@ -81,7 +81,7 @@ process_fork (const char *name, struct intr_frame *if_) {
 	struct thread *curr = thread_current();
 	memcpy(&curr->parent_if, if_, sizeof(struct intr_frame));
 
-	tid_t tid = thread_create (name, PRI_DEFAULT, __do_fork, curr);
+	tid_t tid = thread_create (name, curr->priority, __do_fork, curr);
 	if (tid == TID_ERROR){
 		return TID_ERROR;
 	}
@@ -177,17 +177,6 @@ __do_fork (void *aux) {
 	// 어떤 경우에 file_duplicate 해야하는가?.
 
 	struct file *_file;
-	// for (int i = 2; i <= 512; i++) {
-	// 	_file = parent -> fd_table[i];
-	// 	if (_file != NULL) {
-	// 		struct file *_dup = file_duplicate(_file);
-	// 		if (_dup == NULL) {
-	// 			goto error;
-	// 		}
-	// 		file_allow_write(_dup);
-	// 		current -> fd_table[i] = _dup;
-	// 	}
-	// }
 	for (int i = 2; i <= 512; i++) {
 		_file = parent -> fd_table[i];
 		if (_file != NULL) {
@@ -197,21 +186,6 @@ __do_fork (void *aux) {
 			}
 			file_allow_write(_dup);
 			current -> fd_table[i] = _dup;
-			// bool found = false;
-			// if (!found)
-			// {
-			// 	struct file *new_file;
-			// 	if (_file > 2)
-			// 	{
-			// 		new_file = file_duplicate(_file);
-			// 	}
-			// 	else
-			// 	{
-			// 		new_file = _file;
-			// 	}
-			// 	current->fd_table[i] = new_file;
-			// }
-
 		}
 	}
 	current -> next_fd = parent -> next_fd;
@@ -277,7 +251,6 @@ process_exec (void *f_name) {
 	/* If load failed, quit. */
 	if (!success)
 		return -1;
-
 	char *argptr_list[32];
 	// push args value and get pointer
 	for (int i = _argc - 1; i >= 0; i--) {
@@ -348,16 +321,16 @@ process_exit (void) {
 	struct file *_file;
 
 	for (int i = 2; i <= 512; i++) {
-		if (curr -> fd_table[i] != NULL) {
-			_file = curr -> fd_table[i];
-			file_close(_file);
+		lock_acquire(&file_lock);
+		_file = curr -> fd_table[i];
+		if (_file != NULL) {
 			curr -> fd_table[i] = NULL;
-			// close(i);
+			file_close(_file);
 		}
+		lock_release(&file_lock);
 	}
-
-	palloc_free_multiple(curr->fd_table, 3);
 	file_close(curr->active_file);
+	palloc_free_multiple(curr->fd_table, 3);
 	sema_up(&curr -> wait_sema);
 	sema_down(&curr -> clean_sema);
 
@@ -481,13 +454,11 @@ load (const char *file_name, struct intr_frame *if_) {
 	process_activate (thread_current ());
 
 	/* Open executable file. */
-	// lock_acquire(&file_lock);
 	file = filesys_open (file_name);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
 		goto done;
 	}
-	// lock_release(&file_lock);
 	file_deny_write(file);
 	t-> active_file = file;
 

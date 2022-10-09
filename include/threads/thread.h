@@ -194,8 +194,6 @@ void mlfqs_update_priority(void);
 
 // proj2
 struct thread* find_child(tid_t);
-int allocate_fd(void);
-
 void do_iret (struct intr_frame *tf);
 
 #endif /* threads/thread.h */
