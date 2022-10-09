@@ -57,8 +57,7 @@ void halt (void) {
 }
 
 void exit (int status) {
-	struct thread *curr = thread_current();
-	curr -> exit_status = status;
+	thread_current() -> exit_status = status;
 
 	printf("%s: exit(%d)\n", thread_name(), status);
 	thread_exit();
@@ -66,7 +65,7 @@ void exit (int status) {
 
 int fork (const char *thread_name, struct intr_frame *f) {
 	check_valid_ptr(thread_name);
-	process_fork(thread_name, f);
+	return process_fork(thread_name, f);
 }
 
 int exec (const char *file) {
@@ -74,16 +73,13 @@ int exec (const char *file) {
 
 	char *fn_copy = palloc_get_page(PAL_ZERO);
 	if (fn_copy == NULL) {
-		exit(-1);
+		return -1;
 	}
 	strlcpy(fn_copy, file, strlen(file)+1);
-
-	if (process_exec(fn_copy) == -1) {
+	if (process_exec(fn_copy) == TID_ERROR) {
 		exit(-1);
 	}
-
 	NOT_REACHED();
-	return 0;
 }
 
 int wait (tid_t pid) {
@@ -106,7 +102,6 @@ bool create (const char *file, unsigned initial_size) {
 
 bool remove (const char *file) {
 	check_valid_ptr(file);
-	// special case = remove opened file
 	return filesys_remove(file);
 }
 
@@ -114,30 +109,59 @@ int open (const char *file) {
 	check_valid_ptr(file);
 
 	int new_fd = -1;
+	// lock_acquire(&file_lock);
+	// struct file *file_ptr = filesys_open(file);
+	// if (file_ptr == NULL) {
+	// 	new_fd = -1;
+	// }
+	// else {
+	// 	struct thread *curr = thread_current();
+	// 	for (int i = curr -> next_fd; i <= 512; i++) {
+	// 		if (curr -> fd_table[i] == NULL) {
+	// 			curr -> next_fd = i;
+	// 			break;
+	// 		}
+	// 	}
+	// 	if (curr -> next_fd < 1 || curr -> next_fd > 512) {
+	// 		new_fd = -1;
+	// 		// file_close(file_ptr);
+	// 	} else {
+	// 		curr -> fd_table[curr -> next_fd] = file_ptr;
+	// 		new_fd = curr -> next_fd;
+	// 	}
+	// 	// new_fd = add_file_to_fdt(file_ptr);
+	// 	// if (new_fd == -1) {
+	// 	// 	lock_acquire(&file_lock);
+	// 	// 	file_close(file_ptr);
+	// 	// 	lock_release(&file_lock);
+	// 	// }
+	// }
+	// lock_release(&file_lock);
+	if (file == NULL)
+	{
+		return -1;
+	}
+
 	lock_acquire(&file_lock);
-	struct file *file_ptr = filesys_open(file);
-	if (file_ptr == NULL) {
-		new_fd = -1;
-	}
-	else {
-		struct thread *curr = thread_current();
-		// int fd = allocate_fd();
-		for (int i = curr -> next_fd; i <= 128; i++) {
-			if (curr -> fd_table[i] == NULL) {
-				curr -> next_fd = i;
-				break;
-			}
-		}
-		// curr -> fd_table[fd] = file_ptr;
-		if (curr -> next_fd < 1 || curr -> next_fd > 128) {
-			new_fd = -1;
-		} else {
-			curr -> fd_table[curr -> next_fd] = file_ptr;
-			new_fd = curr -> next_fd;
-		}
-	}
+	struct file *open_file = filesys_open(file);
 	lock_release(&file_lock);
-	return new_fd;
+
+	if (open_file == NULL)
+	{
+		return -1;
+	}
+
+	int fd = add_file_to_fdt(open_file);
+
+	if (fd == -1)
+	{
+		lock_acquire(&file_lock);
+		file_close(open_file);
+		lock_release(&file_lock);
+	}
+
+	return fd;
+	// return new_fd;
 	// return file descriptor
 	// 0 : stdin / 1 : stdout
 	// 파일을 각 프로세스가 열 때 마다 각 fd가 생긴다.
@@ -148,17 +172,22 @@ int open (const char *file) {
 	// 128개 by FAQ
 	// Thread는 fd의 리스트를 가지게 될 것이다.
 	// return file
+	// page allocation으로 변경 & multi-oom이 212 까지 가져서 512으로 변경.
 }
 
 int filesize (int fd) {
-	if (fd < 1 || fd > 128) {
+	if (fd < 1 || fd > 512) {
 		return -1;
 	}
 	struct file *_file = thread_current() -> fd_table[fd];
 	if (_file == NULL) {
 		return -1;
 	}
-	return file_length(_file);
+	lock_acquire(&file_lock);
+	int length = file_length(_file);
+	lock_release(&file_lock);
+
+	return length;
 }
 
 int read (int fd, void *buffer, unsigned length) {
@@ -166,19 +195,20 @@ int read (int fd, void *buffer, unsigned length) {
 	if (fd == 0) {
 		return input_getc ();
 	}
+
 	int ret_val = -1;
-	lock_acquire(&file_lock);
-	if (fd < 1 || fd > 128) {
+	if (fd < 1 || fd > 512) {
 		ret_val = -1;
 	} else {
+		lock_acquire(&file_lock);
 		struct file *_file = thread_current() -> fd_table[fd];
 		if (_file == NULL) {
 			ret_val = -1;
 		} else {
 			ret_val = file_read(_file, buffer, length);
 		}
+		lock_release(&file_lock);
 	}
-	lock_release(&file_lock);
 	return ret_val;
 }
 
@@ -186,14 +216,17 @@ int write (int fd, const void *buffer, unsigned length) {
 	check_valid_ptr(buffer);
 
 	int ret_val = -1;
-	lock_acquire(&file_lock);
+	// printf("thread struct size : %d\n", sizeof(struct thread));
 	if (fd == 1) {
+		lock_acquire(&file_lock);
 		putbuf(buffer, length);
+		lock_release(&file_lock);
 		ret_val = length;
 	}
-	else if (fd < 2 || fd > 128) {
+	else if (fd < 2 || fd > 512) {
 		ret_val = -1;
 	} else {
+		lock_acquire(&file_lock);
 		struct file *_file = thread_current() -> fd_table[fd];
 		if (_file == NULL) {
 			ret_val = -1;
@@ -204,20 +237,21 @@ int write (int fd, const void *buffer, unsigned length) {
 			ret_val = file_write(_file, buffer, length);
 			// printf("buff : %d, file_pos: %d \n", length, file_pos(_file));
 		}
+		lock_release(&file_lock);
 	}
 	// printf("(pid: %d) fin? \n", thread_current() -> tid);
-	lock_release(&file_lock);
+
 	return ret_val;
 }
 
 void seek (int fd, unsigned position) {
-	if (fd < 1 || fd > 128) {
-		exit(-1);
+	if (fd < 2 || fd > 512) {
+		return;
 	}
 	lock_acquire(&file_lock);
 	struct file *_file = thread_current() -> fd_table[fd];
 	if (_file == NULL) {
-		exit(-1);
+		return;
 	}
 	// printf("seek called? at pos %d\n", position);
 	file_seek(_file, position);
@@ -225,13 +259,13 @@ void seek (int fd, unsigned position) {
 }
 
 unsigned tell (int fd) {
-	if (fd < 1 || fd > 128) {
-		exit(-1);
+	if (fd < 2 || fd > 512) {
+		return;
 	}
 	lock_acquire(&file_lock);
 	struct file *_file = thread_current() -> fd_table[fd];
 	if (_file == NULL) {
-		exit(-1);
+		return;
 	}
 	unsigned pos = file_tell(_file);
 	lock_release(&file_lock);
@@ -239,18 +273,18 @@ unsigned tell (int fd) {
 }
 
 void close (int fd) {
-	if (fd < 1 || fd > 128) {
-		exit(-1);
+	if (fd < 2 || fd > 512) {
+		return;
 	}
-	lock_acquire(&file_lock);
+	// lock_acquire(&file_lock);
 	struct thread *curr = thread_current();
 	struct file *_file = curr -> fd_table[fd];
 	if (_file == NULL) {
-		exit(-1);
+		return;
 	}
 	curr -> fd_table[fd] = NULL;
 	file_close(_file);
-	lock_release(&file_lock);
+	// lock_release(&file_lock);
 }
 
 
@@ -259,7 +293,6 @@ void
 syscall_handler (struct intr_frame *f) {
 	int sys_num = f -> R.rax;
 	// %rdi, %rsi, %rdx, %r10, %r8, and %r9.
-// 
 	// printf("num : %d\n", sys_num);
 	switch (sys_num)
 	{
@@ -309,4 +342,23 @@ syscall_handler (struct intr_frame *f) {
 			exit(-1);
 			break;
 	}
+}
+
+int add_file_to_fdt(struct file *file)
+{
+	struct thread *curr = thread_current();
+	struct file **fdt = curr->fd_table;
+
+	while (curr->next_fd < 512 && fdt[curr->next_fd])
+	{
+		curr->next_fd++;
+	}
+
+	if (curr->next_fd >= 512)
+	{
+		return -1;
+	}
+
+	fdt[curr->next_fd] = file;
+	return curr->next_fd;
 }

@@ -115,13 +115,18 @@ struct thread {
 	// proj2
 	int exit_status;
 	int next_fd;
+	struct intr_frame parent_if;
 	struct list child_list;
 	struct list_elem child_elem;
 	struct semaphore wait_sema;
 	struct semaphore clean_sema;
 	struct semaphore fork_sema;
-	struct intr_frame parent_if;
-	struct file* fd_table[128];
+	// multi-oom 관련 이슈가 발생하여 제일의심이 가던 여기서 확인.
+	// 128의 local 변수를 사용했는데, multi-oom에서 사용해보니 thread 구조채의 크기가 1744임..
+	// stay under 1024 byte임으로 128개의 파일 최대를 유지하려면
+	// page를 가져와서 사용하는 방법으로 전환해야 될 것 같음.
+	// struct file* fd_table[128];
+	struct file **fd_table;
 	struct file *active_file;
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */

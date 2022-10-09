@@ -75,7 +75,10 @@ consume_some_resources_and_die (void)
   consume_some_resources ();
   int *KERN_BASE = (int *)0x8004000000;
 
+  // 숫자르 바꿔봐도 같은 failure number 임으로 thread 전반적인 문제임.
+  // fork 흝어보기 시작.
   switch (random_ulong () % 5) {
+  // switch (1) {
 	case 0:
 	  *(int *) NULL = 42;
     break;

@@ -19,6 +19,7 @@
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+#include "userprog/syscall.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -174,8 +175,20 @@ __do_fork (void *aux) {
 	// sync를 보장해주고나 fd_table의 초기화를 설정해줄 필요가 있다.
 	// 여기서 file_duplicate를 여러번 불러서 inode_deny_count가 2배 증가함, -> rox-multichild를 통과못하는 것 같음
 	// 어떤 경우에 file_duplicate 해야하는가?.
+
 	struct file *_file;
-	for (int i = 2; i <= 128; i++) {
+	// for (int i = 2; i <= 512; i++) {
+	// 	_file = parent -> fd_table[i];
+	// 	if (_file != NULL) {
+	// 		struct file *_dup = file_duplicate(_file);
+	// 		if (_dup == NULL) {
+	// 			goto error;
+	// 		}
+	// 		file_allow_write(_dup);
+	// 		current -> fd_table[i] = _dup;
+	// 	}
+	// }
+	for (int i = 2; i <= 512; i++) {
 		_file = parent -> fd_table[i];
 		if (_file != NULL) {
 			struct file *_dup = file_duplicate(_file);
@@ -184,6 +197,21 @@ __do_fork (void *aux) {
 			}
 			file_allow_write(_dup);
 			current -> fd_table[i] = _dup;
+			// bool found = false;
+			// if (!found)
+			// {
+			// 	struct file *new_file;
+			// 	if (_file > 2)
+			// 	{
+			// 		new_file = file_duplicate(_file);
+			// 	}
+			// 	else
+			// 	{
+			// 		new_file = _file;
+			// 	}
+			// 	current->fd_table[i] = new_file;
+			// }
+
 		}
 	}
 	current -> next_fd = parent -> next_fd;
@@ -243,14 +271,14 @@ process_exec (void *f_name) {
 	}
 	/* And then load the binary */
 	// printf("(exec) pid : %d, load start\n", curr -> tid);
-	success = load (_file_name, &_if);
+	success = load (arg_list[0], &_if);
 	palloc_free_page (file_name);
 	// printf("(exec) pid : %d, load end\n", curr -> tid);
 	/* If load failed, quit. */
 	if (!success)
 		return -1;
 
-	char *argptr_list[_argc-1];
+	char *argptr_list[32];
 	// push args value and get pointer
 	for (int i = _argc - 1; i >= 0; i--) {
 		// strlen doesn't add \0
@@ -307,8 +335,8 @@ process_wait (tid_t child_tid) {
 	}
 
 	sema_down(&child -> wait_sema);
-	list_remove(&child -> child_elem);
 	int child_exit = child -> exit_status;
+	list_remove(&child -> child_elem);
 	sema_up(&child -> clean_sema);
 	return child_exit;
 }
@@ -319,17 +347,20 @@ process_exit (void) {
 	struct thread *curr = thread_current ();
 	struct file *_file;
 
-	for (int i = 2; i <= 128; i++) {
+	for (int i = 2; i <= 512; i++) {
 		if (curr -> fd_table[i] != NULL) {
 			_file = curr -> fd_table[i];
 			file_close(_file);
 			curr -> fd_table[i] = NULL;
+			// close(i);
 		}
 	}
 
+	palloc_free_multiple(curr->fd_table, 3);
 	file_close(curr->active_file);
 	sema_up(&curr -> wait_sema);
 	sema_down(&curr -> clean_sema);
+
 	process_cleanup ();
 }
 
@@ -450,11 +481,13 @@ load (const char *file_name, struct intr_frame *if_) {
 	process_activate (thread_current ());
 
 	/* Open executable file. */
+	// lock_acquire(&file_lock);
 	file = filesys_open (file_name);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
 		goto done;
 	}
+	// lock_release(&file_lock);
 	file_deny_write(file);
 	t-> active_file = file;
 

@@ -133,7 +133,9 @@ thread_start (void) {
 	/* Create the idle thread. */
 	struct semaphore idle_started;
 	sema_init (&idle_started, 0);
-	thread_create ("idle", PRI_MIN, idle, &idle_started);
+	if (thread_create ("idle", PRI_MIN, idle, &idle_started) == TID_ERROR) {
+		exit(-1);
+	}
 
 	// load avg initialize
 	fp_load_avg = 0;
@@ -215,11 +217,14 @@ thread_create (const char *name, int priority,
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
 	// proj 2
-	struct thread* curr = thread_current();
+	t->fd_table = palloc_get_multiple(PAL_ZERO, 3);
+	if (t->fd_table == NULL)
+	{
+		return TID_ERROR;
+	}
 	t->next_fd = 2;
-	// t->parent = curr;
-	list_push_back(&curr->child_list, &t->child_elem);
-	// 
+	list_push_back(&thread_current()->child_list, &t->child_elem);
+
 	/* Add to run queue. */
 	thread_unblock (t);
 	thread_check_appropriate();
@@ -650,9 +655,6 @@ init_thread (struct thread *t, const char *name, int priority) {
 	sema_init (&t -> clean_sema, 0);
 	sema_init (&t -> fork_sema, 0);
 	t->active_file = NULL;
-
-	t -> exit_status = 0;
-	for (int i = 0; i < 128; i ++) t->fd_table[i] = NULL;
 
 	list_push_back(&all_list, &t -> all_elem);
 }
