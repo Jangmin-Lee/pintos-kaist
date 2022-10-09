@@ -107,59 +107,21 @@ bool remove (const char *file) {
 
 int open (const char *file) {
 	check_valid_ptr(file);
-
-	int new_fd = -1;
-	// lock_acquire(&file_lock);
-	// struct file *file_ptr = filesys_open(file);
-	// if (file_ptr == NULL) {
-	// 	new_fd = -1;
-	// }
-	// else {
-	// 	struct thread *curr = thread_current();
-	// 	for (int i = curr -> next_fd; i <= 512; i++) {
-	// 		if (curr -> fd_table[i] == NULL) {
-	// 			curr -> next_fd = i;
-	// 			break;
-	// 		}
-	// 	}
-	// 	if (curr -> next_fd < 1 || curr -> next_fd > 512) {
-	// 		new_fd = -1;
-	// 		// file_close(file_ptr);
-	// 	} else {
-	// 		curr -> fd_table[curr -> next_fd] = file_ptr;
-	// 		new_fd = curr -> next_fd;
-	// 	}
-	// 	// new_fd = add_file_to_fdt(file_ptr);
-	// 	// if (new_fd == -1) {
-	// 	// 	lock_acquire(&file_lock);
-	// 	// 	file_close(file_ptr);
-	// 	// 	lock_release(&file_lock);
-	// 	// }
-	// }
-	// lock_release(&file_lock);
-	if (file == NULL)
-	{
+	struct file *file_ptr = filesys_open(file);
+	if (file_ptr == NULL) {
 		return -1;
 	}
 
-	lock_acquire(&file_lock);
-	struct file *open_file = filesys_open(file);
-	lock_release(&file_lock);
-
-	if (open_file == NULL)
-	{
-		return -1;
+	struct thread *curr = thread_current();
+	for (int i = curr -> next_fd; i < 512; i++) {
+		if (curr -> fd_table[i] == NULL) {
+			curr -> next_fd = i;
+			curr -> fd_table[i] = file_ptr;
+			return i;
+		}
 	}
-	int fd = add_file_to_fdt(open_file);
-	if (fd == -1)
-	{
-		lock_acquire(&file_lock);
-		file_close(open_file);
-		lock_release(&file_lock);
-	}
-
-	return fd;
-	// return new_fd;
+	file_close(file_ptr);
+	return -1;
 	// return file descriptor
 	// 0 : stdin / 1 : stdout
 	// 파일을 각 프로세스가 열 때 마다 각 fd가 생긴다.
@@ -181,11 +143,7 @@ int filesize (int fd) {
 	if (_file == NULL) {
 		return -1;
 	}
-	lock_acquire(&file_lock);
-	int length = file_length(_file);
-	lock_release(&file_lock);
-
-	return length;
+	return file_length(_file);;
 }
 
 int read (int fd, void *buffer, unsigned length) {
@@ -338,23 +296,4 @@ syscall_handler (struct intr_frame *f) {
 			exit(-1);
 			break;
 	}
-}
-
-int add_file_to_fdt(struct file *file)
-{
-	struct thread *curr = thread_current();
-	struct file **fdt = curr->fd_table;
-
-	while (curr->next_fd < 512 && fdt[curr->next_fd])
-	{
-		curr->next_fd++;
-	}
-
-	if (curr->next_fd >= 512)
-	{
-		return -1;
-	}
-
-	fdt[curr->next_fd] = file;
-	return curr->next_fd;
 }

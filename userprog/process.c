@@ -184,7 +184,6 @@ __do_fork (void *aux) {
 			if (_dup == NULL) {
 				goto error;
 			}
-			file_allow_write(_dup);
 			current -> fd_table[i] = _dup;
 		}
 	}
@@ -241,7 +240,7 @@ process_exec (void *f_name) {
 		token = strtok_r (NULL, " ", &save_ptr)
 	) {
 		arg_list[_argc] = token;
-		_argc ++;
+		_argc++;
 	}
 	/* And then load the binary */
 	// printf("(exec) pid : %d, load start\n", curr -> tid);
