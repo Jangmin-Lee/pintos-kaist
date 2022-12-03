@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
 #include "threads/interrupt.h"
 #ifdef VM
 #include "vm/vm.h"
@@ -107,18 +108,33 @@ struct thread {
 	// mlqfs fixed point value
 	int fp_recent_cpu;
 
-
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 	struct list_elem all_elem;
 
-#ifdef USERPROG
+	// proj2
+	int exit_status;
+	int next_fd;
+	struct intr_frame parent_if;
+	struct list child_list;
+	struct list_elem child_elem;
+	struct semaphore wait_sema;
+	struct semaphore clean_sema;
+	struct semaphore fork_sema;
+	// multi-oom 관련 이슈가 발생하여 제일의심이 가던 여기서 확인.
+	// 128의 local 변수를 사용했는데, multi-oom에서 사용해보니 thread 구조채의 크기가 1744임..
+	// stay under 1024 byte임으로 128개의 파일 최대를 유지하려면
+	// page를 가져와서 사용하는 방법으로 전환해야 될 것 같음.
+	// struct file* fd_table[128];
+	struct file **fd_table;
+	struct file *active_file;
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
-#endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
+	void *stack_bottom;
+	void* handler_rsp;
 #endif
 
 	/* Owned by thread.c. */
@@ -176,6 +192,8 @@ void mlfqs_recent_cpu_incr(void);
 void mlfqs_update_recent_cpu(void);
 void mlfqs_update_priority(void);
 
+// proj2
+struct thread* find_child(tid_t);
 void do_iret (struct intr_frame *tf);
 
 #endif /* threads/thread.h */

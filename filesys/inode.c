@@ -236,7 +236,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 	const uint8_t *buffer = buffer_;
 	off_t bytes_written = 0;
 	uint8_t *bounce = NULL;
-
+	// printf(">>> (inode) deny_cnt : %d\n", inode -> deny_write_cnt);
 	if (inode->deny_write_cnt)
 		return 0;
 

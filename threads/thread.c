@@ -1,15 +1,12 @@
 #include "threads/thread.h"
-#include <debug.h>
 #include <stddef.h>
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
 #include <console.h>
 #include "threads/flags.h"
-#include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
 #include "threads/palloc.h"
-#include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "threads/fp.h"
 #include "intrinsic.h"
@@ -115,7 +112,7 @@ thread_init (void) {
 	};
 	lgdt (&gdt_ds);
 
-	/* Init the globla thread context */
+	/* Init the global thread context */
 	lock_init (&tid_lock);
 	list_init (&ready_list);
 	list_init (&sleep_list);
@@ -136,7 +133,9 @@ thread_start (void) {
 	/* Create the idle thread. */
 	struct semaphore idle_started;
 	sema_init (&idle_started, 0);
-	thread_create ("idle", PRI_MIN, idle, &idle_started);
+	if (thread_create ("idle", PRI_MIN, idle, &idle_started) == TID_ERROR) {
+		exit(-1);
+	}
 
 	// load avg initialize
 	fp_load_avg = 0;
@@ -207,7 +206,6 @@ thread_create (const char *name, int priority,
 	/* Initialize thread. */
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
-
 	/* Call the kernel_thread if it scheduled.
 	 * Note) rdi is 1st argument, and rsi is 2nd argument. */
 	t->tf.rip = (uintptr_t) kernel_thread;
@@ -218,6 +216,14 @@ thread_create (const char *name, int priority,
 	t->tf.ss = SEL_KDSEG;
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
+	// proj 2
+	t->fd_table = palloc_get_multiple(PAL_ZERO, 3);
+	if (t->fd_table == NULL)
+	{
+		return TID_ERROR;
+	}
+	t->next_fd = 2;
+	list_push_back(&thread_current()->child_list, &t->child_elem);
 
 	/* Add to run queue. */
 	thread_unblock (t);
@@ -300,6 +306,9 @@ thread_current (void) {
 	   have overflowed its stack.  Each thread has less than 4 kB
 	   of stack, so a few big automatic arrays or moderate
 	   recursion can cause stack overflow. */
+	// ㄹㅇ이가 이거가...?
+	// GC 돌기전에 memory를 너무 과하게 써서 (아마 FD 쪽에서)?
+	// memory를 새롭게 할당받을 필요가 있다?
 	ASSERT (is_thread (t));
 	ASSERT (t->status == THREAD_RUNNING);
 
@@ -416,7 +425,7 @@ thread_check_appropriate () {
 
 	// Reason of equal = priority가 같다 해도 내부에서 대기를 했을 것임으로?
 	// TODO: Check 필요
-	if (curr_priority < low_priority_in_ready) {
+	if (curr_priority < low_priority_in_ready && !intr_context()) {
 		thread_yield();
 	}
 }
@@ -548,6 +557,26 @@ void mlfqs_update_recent_cpu(void) {
 	}
 }
 
+// child list에서 tid를 가진 child가 있는지 찾는 함수
+struct thread *
+find_child(tid_t target_tid){
+	struct list_elem *e;
+	struct thread* target;
+
+	struct thread *curr = thread_current();
+	struct list *child_list = &(curr -> child_list);
+
+	if (child_list == NULL) {
+		return NULL;
+	}
+	for (e = list_begin (child_list); e != list_end (child_list); e = list_next (e)) {
+		target = list_entry(e, struct thread, child_elem);
+		if (target -> tid == target_tid) {
+			return target;
+		}
+	}
+	return NULL;
+}
 
 /* Idle thread.  Executes when no other thread is ready to run.
 
@@ -612,13 +641,20 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
 
+	// proj 1
 	t->original_priority = priority;
 	t->next_lock = NULL;
-	list_init (&t->donate_list);
-
-	// mlfqs 초기화	
+	list_init (&t -> donate_list);
 	t->nice = NICE_DEFAULT;
 	t->fp_recent_cpu = RECENT_DEFAULT;
+
+	// proj 2;
+	t->exit_status = 0;
+	list_init (&t -> child_list);
+	sema_init (&t -> wait_sema, 0);
+	sema_init (&t -> clean_sema, 0);
+	sema_init (&t -> fork_sema, 0);
+	t->active_file = NULL;
 
 	list_push_back(&all_list, &t -> all_elem);
 }

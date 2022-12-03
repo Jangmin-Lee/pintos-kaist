@@ -37,6 +37,7 @@ test_main (void)
   for (i = 0; i < BLOCK_CNT; i++) 
     {
       size_t ofs = BLOCK_SIZE * order[i];
+      // printf("(test) %d, %d\n", fd, ofs);
       seek (fd, ofs);
       if (write (fd, buf + ofs, BLOCK_SIZE) != BLOCK_SIZE)
         fail ("write %d bytes at offset %zu failed", (int) BLOCK_SIZE, ofs);
@@ -46,6 +47,7 @@ test_main (void)
   shuffle (order, BLOCK_CNT, sizeof *order);
   for (i = 0; i < BLOCK_CNT; i++) 
     {
+      // printf("(random) %dth block\n", i);
       char block[BLOCK_SIZE];
       size_t ofs = BLOCK_SIZE * order[i];
       seek (fd, ofs);

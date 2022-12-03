@@ -10,6 +10,16 @@ struct file {
 	bool deny_write;            /* Has file_deny_write() been called? */
 };
 
+bool
+is_deny (struct file *file) {
+	return file -> deny_write;
+}
+
+off_t
+file_pos (struct file *file) {
+	return file -> pos;
+}
+
 /* Opens a file for the given INODE, of which it takes ownership,
  * and returns the new file.  Returns a null pointer if an
  * allocation fails or if INODE is null. */
