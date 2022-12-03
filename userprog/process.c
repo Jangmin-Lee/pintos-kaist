@@ -94,6 +94,14 @@ process_fork (const char *name, struct intr_frame *if_) {
 	return tid;
 }
 
+struct file *thread_get_file(int fd) {
+	struct file* file = thread_current() -> fd_table[fd];
+	if(file != NULL) {
+		return file;
+	}
+	return	NULL;
+}
+
 #ifndef VM
 /* Duplicate the parent's address space by passing this function to the
  * pml4_for_each. This is only for the project 2. */
@@ -242,6 +250,11 @@ process_exec (void *f_name) {
 		arg_list[_argc] = token;
 		_argc++;
 	}
+	process_cleanup ();
+
+#ifdef VM
+	supplemental_page_table_init(&thread_current() -> spt);
+#endif
 	/* And then load the binary */
 	// printf("(exec) pid : %d, load start\n", curr -> tid);
 	success = load (arg_list[0], &_if);
@@ -342,7 +355,9 @@ process_cleanup (void) {
 	struct thread *curr = thread_current ();
 
 #ifdef VM
-	supplemental_page_table_kill (&curr->spt);
+	if(!hash_empty(&curr->spt.hash_pages)) {
+		supplemental_page_table_kill (&curr->spt);
+	}
 #endif
 
 	uint64_t *pml4;
@@ -427,7 +442,6 @@ struct ELF64_PHDR {
 #define ELF ELF64_hdr
 #define Phdr ELF64_PHDR
 
-static bool setup_stack (struct intr_frame *if_);
 static bool validate_segment (const struct Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		uint32_t read_bytes, uint32_t zero_bytes,
@@ -692,11 +706,24 @@ install_page (void *upage, void *kpage, bool writable) {
  * If you want to implement the function for only project 2, implement it on the
  * upper block. */
 
-static bool
+bool
 lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
+	struct container *container = (struct container *)aux;
+	struct file *file = container -> file;
+	size_t page_read_bytes = container -> page_read_bytes;
+
+	file_seek(file, container -> offset);
+
+    if (file_read(file, page->frame->kva, page_read_bytes) != (int)page_read_bytes) {
+		palloc_free_page(page->frame->kva);
+        return false;
+    }
+    memset(page->frame->kva + page_read_bytes, 0, PGSIZE - page_read_bytes);
+
+    return true;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -714,11 +741,11 @@ lazy_load_segment (struct page *page, void *aux) {
  * Return true if successful, false if a memory allocation error
  * or disk read error occurs. */
 static bool
-load_segment (struct file *file, off_t ofs, uint8_t *upage,
+load_segment (struct file *file, off_t offset, uint8_t *upage,
 		uint32_t read_bytes, uint32_t zero_bytes, bool writable) {
 	ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
 	ASSERT (pg_ofs (upage) == 0);
-	ASSERT (ofs % PGSIZE == 0);
+	ASSERT (offset % PGSIZE == 0);
 
 	while (read_bytes > 0 || zero_bytes > 0) {
 		/* Do calculate how to fill this page.
@@ -728,15 +755,21 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
-		void *aux = NULL;
-		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
-					writable, lazy_load_segment, aux))
+		struct container *container = (struct container *)malloc(sizeof(struct container));
+		container -> file = file;
+		container -> page_read_bytes = page_read_bytes;
+		container -> offset = offset;
+
+		if (!vm_alloc_page_with_initializer(VM_ANON, upage, writable, lazy_load_segment, container)) {
+			free(container);
 			return false;
+		}
 
 		/* Advance. */
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;
+		offset += page_read_bytes;
 	}
 	return true;
 }
@@ -747,11 +780,13 @@ setup_stack (struct intr_frame *if_) {
 	bool success = false;
 	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
 
-	/* TODO: Map the stack on stack_bottom and claim the page immediately.
-	 * TODO: If success, set the rsp accordingly.
-	 * TODO: You should mark the page is stack. */
-	/* TODO: Your code goes here */
-
+	if (vm_alloc_page(VM_ANON | VM_MARKER_0, stack_bottom, true)) {
+		success = vm_claim_page(stack_bottom);
+		if (success) {
+			if_ -> rsp = USER_STACK;
+            thread_current() -> stack_bottom = stack_bottom;
+		}
+    }
 	return success;
 }
 #endif /* VM */

@@ -128,13 +128,13 @@ struct thread {
 	// struct file* fd_table[128];
 	struct file **fd_table;
 	struct file *active_file;
-#ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
-#endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
+	void *stack_bottom;
+	void* handler_rsp;
 #endif
 
 	/* Owned by thread.c. */

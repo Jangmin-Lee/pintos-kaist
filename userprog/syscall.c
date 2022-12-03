@@ -10,6 +10,7 @@
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
+#include "vm/vm.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -45,11 +46,28 @@ syscall_init (void) {
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
 }
 
-void check_valid_ptr(const uint64_t *_ptr) {
+struct page * check_valid_ptr(const uint64_t *_ptr) {
 	// 없는경우, KERNEL 영역인 경우, User영역이지만 valid하지 않은 경우
+#ifdef VM
+	if (_ptr == NULL || is_kernel_vaddr(_ptr)) {
+		exit(-1);
+	}
+	return spt_find_page(&thread_current()->spt, _ptr);
+#else
 	if (_ptr == NULL || is_kernel_vaddr(_ptr) || pml4_get_page(thread_current() -> pml4, _ptr) == NULL) {
 		exit(-1);
 	}
+	return NULL;
+#endif
+}
+
+void check_valid_buffer(void* buffer, unsigned size, bool read_flag) {
+    for (int i = 0; i < size; i++) {
+        struct page* page = check_valid_ptr(buffer + i);
+        if (page == NULL || read_flag == true && page -> writable == false) {
+            exit(-1);
+		}
+    }
 }
 
 void halt (void) {
@@ -96,8 +114,11 @@ int wait (tid_t pid) {
 }
 
 bool create (const char *file, unsigned initial_size) {
-	check_valid_ptr(file);
-	filesys_create(file, initial_size);
+	if (file != NULL) {
+		filesys_create(file, initial_size);
+	} else {
+		exit(-1);
+	}
 }
 
 bool remove (const char *file) {
@@ -107,6 +128,9 @@ bool remove (const char *file) {
 
 int open (const char *file) {
 	check_valid_ptr(file);
+	if (file == NULL) {
+		return -1;
+	}
 	struct file *file_ptr = filesys_open(file);
 	if (file_ptr == NULL) {
 		return -1;
@@ -147,7 +171,7 @@ int filesize (int fd) {
 }
 
 int read (int fd, void *buffer, unsigned length) {
-	check_valid_ptr(buffer);
+	check_valid_buffer(buffer, length, 1);
 	if (fd == 0) {
 		return input_getc ();
 	}
@@ -169,7 +193,7 @@ int read (int fd, void *buffer, unsigned length) {
 }
 
 int write (int fd, const void *buffer, unsigned length) {
-	check_valid_ptr(buffer);
+	check_valid_buffer(buffer, length, 0);
 
 	int ret_val = -1;
 	// printf("thread struct size : %d\n", sizeof(struct thread));
@@ -241,11 +265,29 @@ void close (int fd) {
 	file_close(_file);
 }
 
+void *mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
+    if (addr == NULL || pg_round_down(addr) != addr || is_kernel_vaddr(addr) || (long long)length <= 0) {
+		return NULL;
+	}
+
+    if (spt_find_page(&thread_current()->spt, addr)) return NULL;
+    struct file *target = thread_get_file(fd);
+    if (target == NULL) return NULL;
+
+    return do_mmap(addr, length, writable, target, offset);
+}
+
+void munmap (void *addr) {
+    do_munmap(addr);
+}
 
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f) {
 	int sys_num = f -> R.rax;
+#ifdef VM
+	thread_current() -> handler_rsp = f -> rsp;
+#endif
 	// %rdi, %rsi, %rdx, %r10, %r8, and %r9.
 	// printf("num : %d\n", sys_num);
 	switch (sys_num)
@@ -291,6 +333,12 @@ syscall_handler (struct intr_frame *f) {
 			break;
 		case SYS_CLOSE:
 			close((int) f -> R.rdi);
+			break;
+		case SYS_MMAP:
+			f->R.rax = mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+			break;
+		case SYS_MUNMAP:
+			munmap(f->R.rdi);
 			break;
 		default:
 			exit(-1);
